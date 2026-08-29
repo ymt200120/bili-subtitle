@@ -1,0 +1,13 @@
+{
+  "name": "bili-subtitle",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Resilient Bilibili CC & AI subtitle userscript",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:check": "node scripts/build.mjs --check",
+    "test": "node --test tests/*.test.mjs"
+  }
+}
