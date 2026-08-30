@@ -78,7 +78,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   source was the unsigned endpoint may now get a precise failure instead of a
   possibly-wrong subtitle — that is the intended trade-off (`no result >
   wrong result`).
-- `.gitignore` now excludes `.zcode/` (local tooling state).
 
 ## [1.0.1] - 2026-08-30
 
@@ -146,6 +145,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   strategies (mocked network) and log sanitization
 - Protocol notes in `docs/PROTOCOL.md` distinguishing verified facts from
   prior-art evidence and pending browser validation
-- Archived pre-1.0 prototype at `docs/prototype/1.js`
+- Archived pre-1.0 prototype at `docs/prototype/1.js` (since removed from the
+  repository; preserved in git history)
 
 [1.0.0]: https://github.com/ymt200120/bili-subtitle/releases/tag/v1.0.0

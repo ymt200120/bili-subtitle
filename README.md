@@ -133,7 +133,7 @@ Ignored · legacy-json（UNTRUSTED_LEGACY：未签名接口不作为结果来源
 |---|---|
 | 单元测试（72 项：URL/字幕解析/SRT/Protobuf/策略链/WBI 签名向量/归属校验/日志脱敏） | ✅ `npm test` 全部通过 |
 | WBI 签名算法（mixin_key 重排、w_rid 计算） | ✅ 与社区参考的确定性测试向量一致 |
-| **跨视频字幕 bug（此前真实复现场景）** | ✅ **v1.0.2 已在真实浏览器验证：不再复现**（用户实测，2026-08-30） |
+| **跨视频字幕 bug（此前真实复现场景）** | ✅ **v1.0.2 已在真实浏览器验证：不再复现**（真实浏览器验证，2026-08-30） |
 | 匿名接口行为（view API、player/v2 空列表、web/view 空protobuf） | ✅ 本机验证 2026-08-29，见 [docs/PROTOCOL.md](docs/PROTOCOL.md) |
 | **signed-wbi 真实浏览器字幕提取** | ✅ **已验证**：真实视频页成功返回字幕轨并完成正文提取（见下方截图） |
 | **trust model / Winner 行为** | ✅ **已验证**：`signed-wbi` 以 `SIGNED_METADATA` 成为 Winner，未签名 legacy metadata 被 `UNTRUSTED_LEGACY` 标记并忽略 |
@@ -181,10 +181,6 @@ src/
 ```
 
 修改 `src/` 后运行 `npm run build` 重新生成安装文件；测试与构建共用同一拼接规则（`scripts/pack.mjs`）。
-
-## 历史 / History
-
-`docs/prototype/1.js` 是本项目 v1.0.0 之前的真实可运行原型（已在真实 B 站视频上验证过基础链路），现归档作参考，不参与构建。
 
 ## 社区 / Community
 
