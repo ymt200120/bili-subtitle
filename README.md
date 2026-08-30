@@ -57,6 +57,8 @@
 
 ![Resolver diagnostics](docs/screenshots/resolver-diagnostics.png)
 
+> 实际浏览器诊断示例：unsigned legacy metadata 被标记为 `UNTRUSTED_LEGACY` 并忽略，`signed-wbi` 以 `SIGNED_METADATA` 身份成为 Winner。
+
 ## Resolver 架构 / Resolver architecture
 
 ```mermaid
@@ -133,8 +135,10 @@ Ignored · legacy-json（UNTRUSTED_LEGACY：未签名接口不作为结果来源
 | WBI 签名算法（mixin_key 重排、w_rid 计算） | ✅ 与社区参考的确定性测试向量一致 |
 | **跨视频字幕 bug（此前真实复现场景）** | ✅ **v1.0.2 已在真实浏览器验证：不再复现**（用户实测，2026-08-30） |
 | 匿名接口行为（view API、player/v2 空列表、web/view 空protobuf） | ✅ 本机验证 2026-08-29，见 [docs/PROTOCOL.md](docs/PROTOCOL.md) |
-| **`/x/player/wbi/v2` 的匿名/登录态实际行为** | ⚠️ **需要浏览器验证**（v1.0.2 新增，见 PROTOCOL §2b） |
-| 登录态完整链路（重点：signed-wbi / Strategy B 返回 ai-zh 轨道） | ⚠️ **需要浏览器验证**，协议依据见 PROTOCOL.md |
+| **signed-wbi 真实浏览器字幕提取** | ✅ **已验证**：真实视频页成功返回字幕轨并完成正文提取（见下方截图） |
+| **trust model / Winner 行为** | ✅ **已验证**：`signed-wbi` 以 `SIGNED_METADATA` 成为 Winner，未签名 legacy metadata 被 `UNTRUSTED_LEGACY` 标记并忽略 |
+| wbi/v2 匿名态完整行为、多账号/多风控场景矩阵 | ⚠️ 单一真实案例已验证，尚需更广覆盖 |
+| 登录态系统性矩阵（多账号 / Strategy B web-view 轨道内容） | ⚠️ 尚需更多验证，协议依据见 PROTOCOL.md |
 | Firefox + Violentmonkey 的 GM arraybuffer | ⚠️ 管理器声明支持，未实测 |
 
 ## 兼容性 / Compatibility
@@ -223,6 +227,6 @@ Precise per-strategy diagnostics (✓ / ✗ / ○ with runId, context and winner
 
 **Why another extractor?** Other projects already cover multi-format export, batch download, CLI, Chrome extensions and AI-agent workflows (see the table above). This project targets one narrow goal: a single userscript that follows Bilibili's shifting subtitle endpoints automatically and tells you exactly why when it cannot. It is not affiliated with Bilibili; it only reads subtitles already offered to the current user.
 
-**Verification status:** 72 unit tests pass (`npm test`), including deterministic WBI signing vectors and a regression test for the valid-but-wrong unsigned legacy response; anonymous endpoint behavior verified from a dev environment on 2026-08-29. The v1.0.2 resolver trust model was additionally validated in a real browser against the previously reproduced cross-video subtitle case. The WBI-signed endpoint and the full logged-in path are **pending real-browser validation** — see [docs/PROTOCOL.md](docs/PROTOCOL.md) for protocol evidence and open items.
+**Verification status:** 72 unit tests pass (`npm test`), including deterministic WBI signing vectors and a regression test for the valid-but-wrong unsigned legacy response; anonymous endpoint behavior verified from a dev environment on 2026-08-29. The v1.0.2 resolver trust model was additionally validated in a real browser against the previously reproduced cross-video subtitle case. ✅ The signed-WBI path has been validated in a real browser: it returned a subtitle track, fetched the subtitle body, and became the authoritative winner, with the trust model observed working as intended (unsigned legacy metadata ignored). ⚠️ Anonymous sessions and additional browser / userscript-manager combinations still require broader validation — see [docs/PROTOCOL.md](docs/PROTOCOL.md) for protocol evidence and open items.
 
 **Install:** [Greasy Fork](https://greasyfork.org/zh-CN/scripts/593554-bilibili-cc-ai-subtitle-extractor) (recommended, updates managed by Greasy Fork) or [GitHub Raw](https://raw.githubusercontent.com/ymt200120/bili-subtitle/main/bili-subtitle.user.js) (development, follows the repo metadata).

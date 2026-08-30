@@ -3,6 +3,8 @@
 本文件记录 `bili-subtitle` 依赖的 Bilibili 接口行为、依据与不确定性。
 所有「本机验证」均为 **2026-08-29 的匿名（未登录）请求**，来自开发环境。
 登录态行为无法在本环境验证，已明确标注。
+2026-08-30 起补充了**真实浏览器（登录态）验证**结果，与「本机验证」分开标注
+（见 §2b 与 §7）；单一案例验证不代表全场景验证。
 
 背景：社区接口文档仓库 [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect) 已于 2026-01 因收到 B 站律师函而永久关停。
 因此本文只记录本项目实际依赖的最小行为集合，而不是完整的接口文档。
@@ -61,7 +63,14 @@
   crypto 双重向量验证）与 `src/core/wbi.js`（密钥缓存 TTL 15 分钟；`-352`/`-403`/HTTP 412
   视为签名失效：清缓存、重新 nav、**恰好重试一次**）
 - ✅ 签名算法与社区参考的确定性向量一致（mixin_key 与 w_rid 均有固定测试用例）
-- ⚠️ 匿名 / 登录态下 `wbi/v2` 的实际返回（空列表语义、风控行为）：**待浏览器验证**
+- ✅ **已直接验证（2026-08-30，真实浏览器，登录态，单一案例）**：
+  `/x/player/wbi/v2` 对当前视频（aid/cid 绑定）返回有效字幕轨；
+  `subtitle_url` 成功下载字幕正文；signed-wbi resolver 成为 Winner；
+  未签名 legacy 探针结果被 `UNTRUSTED_LEGACY` 标记且未被采用
+  （证据：仓库 `docs/screenshots/resolver-diagnostics.png`）
+- ⚠️ 匿名态下 `wbi/v2` 的完整行为（空列表语义）：仍待系统验证
+- ⚠️ 不同账号 / B 站风控状态 / 浏览器与 userscript manager 组合：未系统验证
+  （verified once ≠ universally verified）
 - ⚠️ 请求头：沿用页面语义（GM 请求带 `Referer: https://www.bilibili.com/`，
   与浏览器原生行为一致）；有服务端项目称 WBI 接口不应带 Referer，与浏览器行为矛盾，
   待实测确认
@@ -131,7 +140,9 @@
 
 ## 7. 已知边界 / 未验证项
 
-- ⚠️ 登录态下的完整策略链（重点：Strategy B 返回 `ai-zh` 轨道）
+- ✅ signed-wbi 登录态路径已在真实浏览器验证一次（返回 `ai-zh` 轨道并完成正文提取，
+  见 §2b）；⚠️ 完整策略链矩阵（多账号 / Strategy B `web-view` 的实际轨道内容 /
+  匿名完整链路）仍待系统验证
 - ⚠️ Firefox + Violentmonkey 的 `GM_xmlhttpRequest` `arraybuffer` 支持
   （Tampermonkey / Violentmonkey 均声称支持，未实测）
 - ⚠️ 番剧页（`/bangumi/play/`）、国际化站、移动端页面：v1.0.0 明确不支持
