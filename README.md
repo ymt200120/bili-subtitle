@@ -5,7 +5,7 @@
 
 [English](#english) · 协议笔记见 [docs/PROTOCOL.md](docs/PROTOCOL.md)
 
-**安装 / Install →** <https://raw.githubusercontent.com/ymt200120/bili-subtitle/main/bili-subtitle.user.js>
+**安装 / Install →** 推荐 [Greasy Fork](https://greasyfork.org/zh-CN/scripts/593554-bilibili-cc-ai-subtitle-extractor) · 备用 [GitHub Raw](https://raw.githubusercontent.com/ymt200120/bili-subtitle/main/bili-subtitle.user.js)
 （需先安装 [Tampermonkey](https://www.tampermonkey.net/) 或 [Violentmonkey](https://violentmonkey.github.io/)；步骤见下文）
 
 ---
@@ -40,9 +40,22 @@
 
 ## 安装 / Install
 
+- **推荐（普通用户）：[Greasy Fork 安装](https://greasyfork.org/zh-CN/scripts/593554-bilibili-cc-ai-subtitle-extractor)** — 从 Greasy Fork 安装的副本由 Greasy Fork 管理更新
+- **备用（开发/测试）：[GitHub Raw](https://raw.githubusercontent.com/ymt200120/bili-subtitle/main/bili-subtitle.user.js)** — 直接跟随仓库的 userscript metadata 更新
+
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/)（Chrome/Edge）或 [Violentmonkey](https://violentmonkey.github.io/)（Firefox）
-2. 安装脚本：<https://raw.githubusercontent.com/ymt200120/bili-subtitle/main/bili-subtitle.user.js>
+2. 点击上方任一链接安装脚本
 3. 打开任意 <https://www.bilibili.com/video/…> 页面，右下角出现「字幕」
+
+## 截图 / Screenshots
+
+### 字幕面板 / Subtitle panel
+
+![Subtitle panel](docs/screenshots/subtitle-panel.png)
+
+### 解析诊断 / Resolver diagnostics
+
+![Resolver diagnostics](docs/screenshots/resolver-diagnostics.png)
 
 ## Resolver 架构 / Resolver architecture
 
@@ -212,4 +225,4 @@ Precise per-strategy diagnostics (✓ / ✗ / ○ with runId, context and winner
 
 **Verification status:** 72 unit tests pass (`npm test`), including deterministic WBI signing vectors and a regression test for the valid-but-wrong unsigned legacy response; anonymous endpoint behavior verified from a dev environment on 2026-08-29. The v1.0.2 resolver trust model was additionally validated in a real browser against the previously reproduced cross-video subtitle case. The WBI-signed endpoint and the full logged-in path are **pending real-browser validation** — see [docs/PROTOCOL.md](docs/PROTOCOL.md) for protocol evidence and open items.
 
-**Install:** <https://raw.githubusercontent.com/ymt200120/bili-subtitle/main/bili-subtitle.user.js>
+**Install:** [Greasy Fork](https://greasyfork.org/zh-CN/scripts/593554-bilibili-cc-ai-subtitle-extractor) (recommended, updates managed by Greasy Fork) or [GitHub Raw](https://raw.githubusercontent.com/ymt200120/bili-subtitle/main/bili-subtitle.user.js) (development, follows the repo metadata).

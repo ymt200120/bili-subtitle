@@ -1,11 +1,8 @@
 # 截图 / Screenshots
 
-此目录预留真实 UI 截图（尚无内容）。
+- `subtitle-panel.png` —— 字幕面板与提取成功状态（轨道来源、正文预览、导出按钮）
+- `resolver-diagnostics.png` —— 「获取路径」诊断块（Extract run #N / Context / 各 resolver trust 标记 / Winner）
 
-请从真实浏览器截取，不要使用伪造或合成图。建议内容：
-
-1. `panel.png` —— 面板打开且提取成功（可见轨道列表、预览、导出按钮）
-2. `diagnostics.png` —— 「获取路径」诊断块展开（可见 run #N / Context / Winner）
-
-截图就位后，在 README 的「这是什么」小节引用，并按 `docs/PUBLISHING.md` 第 6 节
-用于 Greasy Fork 发布页。
+两者均为真实浏览器截图，已在 README 引用。日后重拍或补充时请保持无隐私信息：
+不得出现 Cookie / SESSDATA / 签名参数（auth_key、w_rid、wts）/ 个人账号信息；
+公开视频的 BV / aid / cid 属于公开技术标识，可接受。

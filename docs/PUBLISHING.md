@@ -22,19 +22,25 @@ Greasy Fork 同步有两种可选模式：
 请在推送任何非发布性质的 main 提交前确认其不含 userscript 实质变化；
 必要时可让 Greasy Fork 的导入源固定指向 release 资产而非分支。
 
-## 2. Greasy Fork 初次发布
+## 2. Greasy Fork 发布与同步
 
-1. 登录 Greasy Fork →「发布你编写的脚本」→ 选择「从 GitHub 导入」或直接粘贴代码。
-2. 导入源使用**分支 URL**（可持续同步，不要用具体 commit 的 raw URL）：
+当前已发布页面（README 中的推荐安装入口）：
+
+```text
+https://greasyfork.org/zh-CN/scripts/593554-bilibili-cc-ai-subtitle-extractor
+```
+
+1. Greasy Fork 支持从 GitHub 导入并自动同步；导入源使用**分支 URL**（可持续同步，
+   不要用具体 commit 的 raw URL）：
 
    ```text
    https://raw.githubusercontent.com/ymt200120/bili-subtitle/main/bili-subtitle.user.js
    ```
 
-3. 简介可直接使用下文第 5 节的文案。
-4. Greasy Fork 会为从它安装的副本重写 update/download URL，由其自行负责更新；
+2. 简介可直接使用下文第 5 节的文案。
+3. Greasy Fork 会为从它安装的副本重写 update/download URL，由其自行负责更新；
    GitHub Raw 的更新机制保留不冲突。不要写多个互相矛盾的 updateURL。
-5. 合规自查（发布前确认）：
+4. 合规自查（发布前确认）：
    - 代码未混淆/未压缩，保留可读变量名（本项目为源码拼接构建，天然满足）
    - 主要功能代码存在于发布脚本内（本项目为单文件完整实现，无远程加载）
    - 无外部代码依赖、无 analytics（零运行时依赖）
