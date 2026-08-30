@@ -42,11 +42,12 @@ const version = readFileSync(path.join(root, FILES[0]), 'utf8').match(
 )[1];
 
 const header = `// ==UserScript==
-// @name         bili-subtitle
+// @name         Bilibili CC / AI Subtitle Extractor
+// @name:zh-CN   Bilibili CC / AI 字幕提取器
 // @namespace    https://github.com/ymt200120
 // @version      ${version}
-// @description  弹性提取 Bilibili CC / AI 字幕：自动尝试多条获取路径，失败时给出精确诊断。零配置、不读取 Cookie。
-// @description:en  Resilient Bilibili CC & AI subtitle extraction with automatic fallback strategies and precise diagnostics. Zero-config, never touches cookies.
+// @description  Resilient Bilibili CC & AI subtitle extraction with automatic fallback strategies and precise diagnostics.
+// @description:zh-CN  零配置提取 Bilibili CC / AI 字幕，自动尝试多条获取路径，失败时提供精确诊断。
 // @author       ymt200120
 // @homepageURL  https://github.com/ymt200120/bili-subtitle
 // @supportURL   https://github.com/ymt200120/bili-subtitle/issues
