@@ -1,0 +1,72 @@
+name: Bug report / Bug 反馈
+description: 提取失败、结果异常或安装问题
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。**提交前请先删除任何隐私信息**：脚本会对日志中的签名 URL 参数（`auth_key` / `w_rid` / `wts`）自动脱敏，但粘贴前请自行复查一遍。
+        请勿包含：Cookie、SESSDATA、auth_key、w_rid、任何个人令牌、完整签名 URL 或完整字幕正文。暂时无需抓取 HAR。
+  - type: input
+    id: script-version
+    attributes:
+      label: 脚本版本 / Script version
+      description: 面板标题或脚本管理器中查看，例如 1.0.2
+    validations:
+      required: true
+  - type: input
+    id: video
+    attributes:
+      label: 视频 URL 或 BV 号 / Video URL or BV id
+      description: 单 P / 多 P（若知道请在文本中说明）
+    validations:
+      required: true
+  - type: dropdown
+    id: login-state
+    attributes:
+      label: 登录状态 / Login state
+      options:
+        - 已登录 / logged in
+        - 未登录 / anonymous
+        - 不确定 / not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: manager
+    attributes:
+      label: 脚本管理器 / Userscript manager
+      options:
+        - Tampermonkey
+        - Violentmonkey
+        - Greasemonkey
+        - 其他 / other（请在日志中说明）
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: 浏览器与版本 / Browser and version
+      description: 例如 Chrome 128 / Firefox 129，以及管理器版本
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么 / What happened
+      description: 实际行为 vs 期望行为；若是串视频字幕，请说明出现的是哪类内容
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 「获取路径」诊断 / Diagnostics block
+      description: 打开面板，复制「获取路径」整块内容（含 Extract run #N、Context、Winner 行）。这些字段已按隐私设计脱敏。
+    validations:
+      required: true
+  - type: textarea
+    id: console-logs
+    attributes:
+      label: Console 日志 / Console logs
+      description: F12 控制台中以 [bili-subtitle] 开头的日志（可按前缀过滤后整段复制）。
+    validations:
+      required: false

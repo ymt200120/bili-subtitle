@@ -5,6 +5,9 @@
 
 [English](#english) · 协议笔记见 [docs/PROTOCOL.md](docs/PROTOCOL.md)
 
+**安装 / Install →** <https://raw.githubusercontent.com/ymt200120/bili-subtitle/main/bili-subtitle.user.js>
+（需先安装 [Tampermonkey](https://www.tampermonkey.net/) 或 [Violentmonkey](https://violentmonkey.github.io/)；步骤见下文）
+
 ---
 
 ## 这是什么 / What it is
@@ -115,6 +118,7 @@ Ignored · legacy-json（UNTRUSTED_LEGACY：未签名接口不作为结果来源
 |---|---|
 | 单元测试（72 项：URL/字幕解析/SRT/Protobuf/策略链/WBI 签名向量/归属校验/日志脱敏） | ✅ `npm test` 全部通过 |
 | WBI 签名算法（mixin_key 重排、w_rid 计算） | ✅ 与社区参考的确定性测试向量一致 |
+| **跨视频字幕 bug（此前真实复现场景）** | ✅ **v1.0.2 已在真实浏览器验证：不再复现**（用户实测，2026-08-30） |
 | 匿名接口行为（view API、player/v2 空列表、web/view 空protobuf） | ✅ 本机验证 2026-08-29，见 [docs/PROTOCOL.md](docs/PROTOCOL.md) |
 | **`/x/player/wbi/v2` 的匿名/登录态实际行为** | ⚠️ **需要浏览器验证**（v1.0.2 新增，见 PROTOCOL §2b） |
 | 登录态完整链路（重点：signed-wbi / Strategy B 返回 ai-zh 轨道） | ⚠️ **需要浏览器验证**，协议依据见 PROTOCOL.md |
@@ -134,7 +138,7 @@ Ignored · legacy-json（UNTRUSTED_LEGACY：未签名接口不作为结果来源
 | `signed-wbi` 显示 code -352 / HTTP 412 | WBI 签名被风控拒绝 | 脚本会自动刷新密钥并重试一次；若反复出现，稍后重试并提 issue |
 | 两个可信接口都显示「空轨道」 | 多数情况是未登录 | 登录 B 站后点「提取字幕」 |
 | 提示「未签名接口返回了轨道，但无法证明归属」 | legacy 探针有轨道但未采信 | 这是预期保护行为；以可信接口/播放器捕获结果为准 |
-| `legacy-json#fetch` 显示 HTTP 403/404 | 签名 URL 过期 | 脚本会自动重取；若仍失败，稍后重试 |
+| `signed-wbi#fetch` / `web-view#fetch` 显示 HTTP 403/404 | 签名字幕 URL 过期 | 脚本会自动重取；若仍失败，稍后重试 |
 | `player-resource` 显示 ○（无捕获） | 播放器还没加载过字幕 | 在播放器打开「字幕/CC」选 AI 字幕，让字幕出现一次，再点「提取字幕」 |
 | `player-resource` 显示「与当前视频不匹配」 | 捕获到的字幕 URL 无法证明属于当前视频 | 在播放器打开「字幕/CC」让播放器实际加载一次，再点「提取字幕」 |
 | 面板不出现 | 脚本未注入 | 确认脚本管理器已启用且匹配当前页面 |
@@ -206,6 +210,6 @@ Precise per-strategy diagnostics (✓ / ✗ / ○ with runId, context and winner
 
 **Why another extractor?** Other projects already cover multi-format export, batch download, CLI, Chrome extensions and AI-agent workflows (see the table above). This project targets one narrow goal: a single userscript that follows Bilibili's shifting subtitle endpoints automatically and tells you exactly why when it cannot. It is not affiliated with Bilibili; it only reads subtitles already offered to the current user.
 
-**Verification status:** 72 unit tests pass (`npm test`), including deterministic WBI signing vectors and a regression test for the valid-but-wrong unsigned legacy response; anonymous endpoint behavior verified from a dev environment on 2026-08-29; the WBI-signed endpoint and the full logged-in path are **pending real-browser validation** — see [docs/PROTOCOL.md](docs/PROTOCOL.md) for protocol evidence and open items.
+**Verification status:** 72 unit tests pass (`npm test`), including deterministic WBI signing vectors and a regression test for the valid-but-wrong unsigned legacy response; anonymous endpoint behavior verified from a dev environment on 2026-08-29. The v1.0.2 resolver trust model was additionally validated in a real browser against the previously reproduced cross-video subtitle case. The WBI-signed endpoint and the full logged-in path are **pending real-browser validation** — see [docs/PROTOCOL.md](docs/PROTOCOL.md) for protocol evidence and open items.
 
 **Install:** <https://raw.githubusercontent.com/ymt200120/bili-subtitle/main/bili-subtitle.user.js>

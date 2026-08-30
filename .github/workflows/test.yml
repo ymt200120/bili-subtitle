@@ -1,0 +1,19 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # 零依赖项目：node:test 与构建脚本只使用 Node 内置模块，无需 npm install
+      - run: npm test
+      # 防止「改了 src/ 忘了重新构建 bili-subtitle.user.js」的漂移
+      - run: npm run build:check
