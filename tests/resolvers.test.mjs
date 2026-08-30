@@ -32,6 +32,18 @@ const STATE = {
   }
 };
 
+const STATE_MULTI = {
+  videoData: {
+    bvid: 'BV1BbKw6XEWq',
+    aid: 116939846387549,
+    title: '多P测试视频',
+    pages: [
+      { page: 1, part: 'P1', cid: 40065631429 },
+      { page: 2, part: 'P2', cid: 40099911111 }
+    ]
+  }
+};
+
 const WEB_VIEW_URL_PART = 'x/v2/subtitle/web/view';
 
 test('legacy success: body loads, later strategies never run', async () => {
@@ -271,6 +283,137 @@ test('captured resources matching current cid are accepted', async () => {
 
   assert.equal(r.ok, true);
   assert.equal(r.track.source, 'player-resource');
+});
+
+test('unowned captured URLs are rejected even before any SPA navigation', async () => {
+  BS.resourceCapture.reset();
+
+  // Regression for v1.0.0: before any in-tab navigation the resolver probed
+  // every captured URL (playlist prefetch, script re-injection replays) and
+  // could surface other videos' subtitles. A URL must prove ownership now.
+  const foreignUrl =
+    'https://aisubtitle.hdslb.com/bfs/ai_subtitle/proxy/99999999999/foreign?auth_key=FFF';
+  const net = mockNet({
+    json: {
+      'x/player/v2': () => EMPTY_PLAYER,
+      [foreignUrl]: () => CUES(1)
+    },
+    binary: {
+      [WEB_VIEW_URL_PART]: () => Uint8Array.from([0x0a, 0x00])
+    }
+  });
+
+  const r = await BS.pipeline.extract(
+    makeEnv(net, {
+      initialState: STATE,
+      getEntries: () => [{ url: foreignUrl, time: 1 }]
+    })
+  );
+
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.diag.render().some((l) => l.includes('player-resource') && l.includes('不匹配'))
+  );
+  assert.equal(
+    net.calls.some((c) => c.url === foreignUrl),
+    false,
+    'foreign URL must not even be fetched'
+  );
+});
+
+test('multi-page video: aid-only captured URL rejected, cid-matching accepted', async () => {
+  BS.resourceCapture.reset();
+
+  const aidOnlyUrl =
+    'https://aisubtitle.hdslb.com/bfs/ai_subtitle/proxy/116939846387549/another-part?auth_key=GGG';
+  const cidUrl =
+    'https://aisubtitle.hdslb.com/bfs/ai_subtitle/proxy/116939846387549-40065631429/current-part?auth_key=HHH';
+  const net = mockNet({
+    json: {
+      'x/player/v2': () => EMPTY_PLAYER,
+      [aidOnlyUrl]: () => CUES(1),
+      [cidUrl]: () => CUES(2)
+    },
+    binary: {
+      [WEB_VIEW_URL_PART]: () => Uint8Array.from([0x0a, 0x00])
+    }
+  });
+
+  const r = await BS.pipeline.extract(
+    makeEnv(net, {
+      initialState: STATE_MULTI,
+      getEntries: () => [
+        { url: aidOnlyUrl, time: 2 },
+        { url: cidUrl, time: 1 }
+      ]
+    })
+  );
+
+  assert.equal(r.ok, true);
+  assert.equal(r.track.source, 'player-resource');
+  assert.equal(r.track.url.includes('current-part'), true);
+  assert.equal(
+    net.calls.some((c) => c.url === aidOnlyUrl),
+    false,
+    'aid-only URL must not be probed on a multi-page video (could be another part)'
+  );
+});
+
+test('ownsUrl predicate: cid always proves ownership, aid only on single-page videos', () => {
+  const owns = BS.resolvers.playerResource.ownsUrl;
+  const ctx = { cid: 40065631429, aid: 116939846387549 };
+  const base = 'https://aisubtitle.hdslb.com/bfs';
+
+  assert.equal(owns(`${base}/subtitle/noid?auth_key=A`, { ...ctx, pageCount: 1 }), false);
+  assert.equal(
+    owns(`${base}/ai_subtitle/proxy/116939846387549/h?auth_key=A`, { ...ctx, pageCount: 1 }),
+    true
+  );
+  assert.equal(
+    owns(`${base}/ai_subtitle/proxy/116939846387549/h?auth_key=A`, { ...ctx, pageCount: 2 }),
+    false
+  );
+  assert.equal(
+    owns(`${base}/ai_subtitle/proxy/116939846387549-40065631429/h?auth_key=A`, { ...ctx, pageCount: 2 }),
+    true
+  );
+  assert.equal(owns(`${base}/subtitle/x?auth_key=A`, null), false);
+});
+
+test('multi-page inline state picks the cid of the requested part', async () => {
+  BS.resourceCapture.reset();
+  const net = mockNet({
+    json: {
+      'x/player/v2': () => ({
+        code: 0,
+        data: {
+          subtitle: {
+            subtitles: [
+              {
+                id: 3,
+                lan: 'zh-Hans',
+                lan_doc: '中文',
+                subtitle_url: 'https://aisubtitle.hdslb.com/bfs/subtitle/p2body?auth_key=III'
+              }
+            ]
+          }
+        }
+      }),
+      'bfs/subtitle/p2body': () => CUES(3)
+    },
+    binary: { [WEB_VIEW_URL_PART]: () => Uint8Array.from([0x0a, 0x00]) }
+  });
+
+  const r = await BS.pipeline.extract(
+    makeEnv(net, {
+      initialState: STATE_MULTI,
+      href: 'https://www.bilibili.com/video/BV1BbKw6XEWq?p=2'
+    })
+  );
+
+  assert.equal(r.ok, true);
+  assert.equal(r.ctx.cid, 40099911111);
+  assert.equal(r.ctx.pageCount, 2);
 });
 
 test('video context falls back to view API without initialState', async () => {

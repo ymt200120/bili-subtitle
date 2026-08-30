@@ -60,7 +60,7 @@ flowchart TD
 
 - **Strategy B（Protobuf）不需要用户先手动打开 AI 字幕**——登录后脚本直接请求新版 metadata 接口并解析（匿名时该接口返回空 data message，诊断会提示「需要登录」）
 - 签名字幕 URL 短期有效（403/404）：脚本**不缓存**，自动重取 metadata
-- 播放器资源捕获是**最后兜底**，SPA 切换视频时清空，不会误用上一部视频的字幕
+- 播放器资源捕获是**最后兜底**，且只探测能证明属于当前视频的 URL（内嵌当前 cid，或单 P 视频内嵌当前 aid）；无法证明归属的捕获 URL 一律不用，绝不串用其他视频的字幕
 - 每一步的 ✓/✗/○ 都显示在面板「获取路径」中，Console 使用 `[bili-subtitle]` 前缀，签名参数一律遮蔽
 
 诊断示例：
@@ -103,7 +103,7 @@ flowchart TD
 
 | 层级 | 状态 |
 |---|---|
-| 单元测试（44 项：URL/字幕解析/SRT/Protobuf/策略链/日志脱敏） | ✅ `npm test` 全部通过 |
+| 单元测试（48 项：URL/字幕解析/SRT/Protobuf/策略链/归属校验/日志脱敏） | ✅ `npm test` 全部通过 |
 | 匿名接口行为（view API、player/v2 空列表、web/view 空protobuf） | ✅ 本机验证 2026-08-29，见 [docs/PROTOCOL.md](docs/PROTOCOL.md) |
 | 登录态完整链路（重点：Strategy B 返回 ai-zh 轨道） | ⚠️ **需要浏览器验证**，协议依据见 PROTOCOL.md |
 | Firefox + Violentmonkey 的 GM arraybuffer | ⚠️ 管理器声明支持，未实测 |
@@ -122,8 +122,9 @@ flowchart TD
 | 两个接口都显示「空轨道」 | 多数情况是未登录 | 登录 B 站后点「提取字幕」 |
 | `legacy-json#fetch` 显示 HTTP 403/404 | 签名 URL 过期 | 脚本会自动重取；若仍失败，稍后重试 |
 | `player-resource` 显示 ○（无捕获） | 播放器还没加载过字幕 | 在播放器打开「字幕/CC」选 AI 字幕，让字幕出现一次，再点「提取字幕」 |
+| `player-resource` 显示「与当前视频不匹配」 | 捕获到的字幕 URL 无法证明属于当前视频 | 在播放器打开「字幕/CC」选 AI 字幕让播放器实际加载一次，再点「提取字幕」 |
 | 面板不出现 | 脚本未注入 | 确认脚本管理器已启用且匹配当前页面 |
-| 切换视频后字幕不对 | — | 不会发生：SPA 导航会重置全部状态；如遇异常请提 issue 附「获取路径」内容 |
+| 切换视频后字幕不对 | — | v1.0.1 起：SPA 导航重置全部状态并作废在途请求；捕获 URL 严格校验归属，多 P 视频仅 aid 匹配的 URL 不再采用。如仍遇异常请提 issue 附「获取路径」内容 |
 
 ## 开发 / Development
 
@@ -183,12 +184,12 @@ Precise per-strategy diagnostics (✓ / ✗ / ○ with reasons and next steps)
 
 - Zero configuration, no cookie access, no telemetry, no video/audio download, no ASR
 - Signed subtitle URLs are never cached; 403/404 triggers automatic metadata re-fetch
-- Player resource capture is cleared on SPA navigation (no cross-video contamination)
+- Player resource capture is reset on SPA navigation, and a captured URL is only used when it provably belongs to the current video (embeds the current cid, or the current aid on single-page videos) — no cross-video contamination
 - Exports: copy plain text, copy timestamped text, TXT, SRT, JSON
 - Only 4 formats by design — the value is resilience and diagnostics, not feature count
 
 **Why another extractor?** Other projects already cover multi-format export, batch download, CLI, Chrome extensions and AI-agent workflows (see the table above). This project targets one narrow goal: a single userscript that follows Bilibili's shifting subtitle endpoints automatically and tells you exactly why when it cannot. It is not affiliated with Bilibili; it only reads subtitles already offered to the current user.
 
-**Verification status:** 44 unit tests pass (`npm test`); anonymous endpoint behavior verified from a dev environment on 2026-08-29; the full logged-in path (especially the protobuf strategy) is **pending real-browser validation** — see [docs/PROTOCOL.md](docs/PROTOCOL.md) for protocol evidence and open items.
+**Verification status:** 48 unit tests pass (`npm test`); anonymous endpoint behavior verified from a dev environment on 2026-08-29; the full logged-in path (especially the protobuf strategy) is **pending real-browser validation** — see [docs/PROTOCOL.md](docs/PROTOCOL.md) for protocol evidence and open items.
 
 **Install:** <https://raw.githubusercontent.com/ymt200120/bili-subtitle/main/bili-subtitle.user.js>

@@ -51,6 +51,7 @@ const header = `// ==UserScript==
 // @updateURL    https://raw.githubusercontent.com/ymt200120/bili-subtitle/main/bili-subtitle.user.js
 // @match        https://www.bilibili.com/video/*
 // @match        https://www.bilibili.com/list/*
+// @noframes
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setClipboard
 // @connect      api.bilibili.com

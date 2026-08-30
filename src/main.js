@@ -3,10 +3,13 @@
  */
 
 function createAppState() {
-  return { ctx: null, tracks: [], track: null, cues: [] };
+  // gen: monotonic token. Every user action that starts an async flow
+  // (extract, track load) or invalidates one (SPA navigation) bumps it;
+  // a flow whose gen is no longer current must not touch state or panel.
+  return { ctx: null, tracks: [], track: null, cues: [], gen: 0 };
 }
 
-function makeEnv(state, panel) {
+function makeEnv(state, panel, isStale) {
   return {
     net: BS.net,
     href: location.href,
@@ -14,8 +17,12 @@ function makeEnv(state, panel) {
       ? window.__INITIAL_STATE__
       : null,
     getEntries: () => BS.resourceCapture.list(),
-    onUpdate: (text) => panel.setStatus(text),
-    onContext: (ctx) => panel.setTitle(ctx.title || ctx.bvid)
+    onUpdate: (text) => {
+      if (!isStale || !isStale()) panel.setStatus(text);
+    },
+    onContext: (ctx) => {
+      if (!isStale || !isStale()) panel.setTitle(ctx.title || ctx.bvid);
+    }
   };
 }
 
@@ -74,36 +81,57 @@ function applyResult(state, panel, result) {
 
 async function onExtract(state, panel) {
   if (state.extracting) return;
+  const gen = ++state.gen;
   state.extracting = true;
   panel.setBusy(true);
   panel.clearResult();
   panel.setMessage('');
 
+  const stale = () => gen !== state.gen;
   try {
-    const result = await BS.pipeline.extract(makeEnv(state, panel));
+    const result = await BS.pipeline.extract(makeEnv(state, panel, stale));
+    if (stale()) {
+      BS.log('提取结果已过期（视频已切换），丢弃');
+      return;
+    }
     state.ctx = result.ctx || state.ctx;
     applyResult(state, panel, result);
   } catch (e) {
+    if (stale()) {
+      BS.log('提取错误已过期（视频已切换），丢弃');
+      return;
+    }
     panel.setMessage(e && e.message ? e.message : String(e));
     panel.setStatus('提取失败');
     BS.errorLog('未预期的错误', e);
   } finally {
-    state.extracting = false;
-    panel.setBusy(false);
+    // A superseded run must not clear the busy flag of the run that owns
+    // the current gen (the SPA hook already reset the flag when it bumped gen).
+    if (!stale()) {
+      state.extracting = false;
+      panel.setBusy(false);
+    }
   }
 }
 
 async function onTrackChange(state, panel, key) {
   const track = panel.findTrack(state.tracks, key);
   if (!track) return;
+  const gen = ++state.gen;
+  const stale = () => gen !== state.gen;
   panel.setStatus(`正在读取：${track.lanDoc || track.lan}…`);
   try {
-    const cues = await BS.pipeline.loadTrackBody(track, makeEnv(state, panel));
+    const cues = await BS.pipeline.loadTrackBody(track, makeEnv(state, panel, stale));
+    if (stale()) {
+      BS.log('轨道结果已过期，丢弃');
+      return;
+    }
     state.track = track;
     state.cues = cues;
     panel.setCues(cues, track);
     panel.setStatus('提取成功');
   } catch (e) {
+    if (stale()) return;
     panel.setStatus('轨道读取失败');
     panel.setMessage(
       (e && e.status === 403) || (e && e.status === 404)
@@ -175,7 +203,12 @@ function boot() {
   BS.resourceCapture.install();
 
   BS.installSpaHooks(() => {
+    // Invalidate any in-flight extract / track load for the previous
+    // video; their results must never land on the new video's panel.
+    state.gen++;
     BS.resourceCapture.reset();
+    state.extracting = false;
+    panel.setBusy(false);
     state.ctx = null;
     state.tracks = [];
     state.track = null;

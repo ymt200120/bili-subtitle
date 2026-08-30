@@ -185,6 +185,17 @@ async function extract(env) {
     }
   }
 
+  // Belt and suspenders: never offer a track we cannot prove belongs to
+  // the current video. legacy/web-view URLs come from APIs queried with
+  // the current cid/aid; player-resource URLs must pass the ownership
+  // check or they are dropped from the track list entirely.
+  merged = merged.filter(
+    (t) =>
+      !t ||
+      t.source !== 'player-resource' ||
+      BS.resolvers.playerResource.ownsUrl(t.url, ctx)
+  );
+
   if (!doc) {
     const hints = buildHints(diag.steps);
     const error = new Error(

@@ -1,5 +1,5 @@
 /*
- * VideoContext resolver: URL -> { bvid, aid, cid, page, title }.
+ * VideoContext resolver: URL -> { bvid, aid, cid, page, pageCount, title }.
  *
  * Prefers the page-embedded __INITIAL_STATE__ (zero extra requests),
  * falls back to the public view API. In SPA state the embedded data can
@@ -10,17 +10,20 @@ const VIEW_API = 'https://api.bilibili.com/x/web-interface/view?bvid=';
 
 function pickPage(pages, wanted) {
   if (!Array.isArray(pages) || pages.length === 0) return null;
-  return (
-    pages.find((x) => Number(x && x.page) === wanted) ||
-    pages[wanted - 1] ||
-    pages[0]
-  );
+  const found = pages.find((x) => Number(x && x.page) === wanted);
+  if (found) return found;
+  // A missing page number means the embedded data does not describe this
+  // URL's part; falling back to pages[0] would silently extract the wrong
+  // cid (wrong subtitles). Only the default P1 may use the first page.
+  if (!wanted || wanted === 1) return pages[0];
+  return null;
 }
 
 function contextFromVideoData(videoData, page) {
   if (!videoData || !videoData.bvid) return null;
   const pages = Array.isArray(videoData.pages) ? videoData.pages : [];
   const selected = pickPage(pages, page);
+  if (!selected && pages.length > 1) return null;
   const cid = Number((selected && selected.cid) || videoData.cid) || 0;
   if (!cid) return null;
   const base = String(videoData.title || '');
@@ -30,6 +33,7 @@ function contextFromVideoData(videoData, page) {
     aid: videoData.aid,
     cid,
     page: Number((selected && selected.page) || page || 1),
+    pageCount: pages.length || 1,
     title: multi ? `${base} P${selected.page || page} ${selected.part}` : base
   });
 }

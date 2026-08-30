@@ -2,12 +2,13 @@
  * Core data model + track scoring/selection.
  */
 
-function makeVideoContext({ bvid, aid, cid, page, title }) {
+function makeVideoContext({ bvid, aid, cid, page, pageCount, title }) {
   return {
     bvid: String(bvid || ''),
     aid: Number(aid) || 0,
     cid: Number(cid) || 0,
     page: Number(page) || 1,
+    pageCount: Number(pageCount) || 1,
     title: String(title || '')
   };
 }

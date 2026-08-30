@@ -8,9 +8,13 @@
  * video's URLs can never be reused for the current one.
  *
  * Candidates are validated by fetching; only URLs that parse into cues
- * are accepted. Ownership check: subtitle URLs usually embed aid/cid;
- * after an in-tab navigation we only accept URLs that match the current
- * context to avoid cross-video contamination.
+ * are accepted. Ownership check is strict and unconditional: a captured
+ * URL is only probed when it embeds the current cid, or (on single-page
+ * videos, where the aid uniquely identifies the part) the current aid.
+ * The resource buffer can hold subtitle URLs of *other* videos (playlist
+ * prefetch, script re-injection replays), so URLs without ownership
+ * evidence are never probed. This trades a rare fallback (id-less CC
+ * URLs) for never showing another video's subtitles.
  */
 
 const SUBTITLE_URL_RE =
@@ -20,7 +24,6 @@ const MAX_PROBES = 8;
 
 const capture = {
   entries: [],
-  navigated: false,
   observer: null,
 
   remember(rawUrl) {
@@ -61,13 +64,24 @@ const capture = {
 
   reset() {
     this.entries = [];
-    this.navigated = true;
   }
 };
 
 function matchesNumber(url, number) {
   if (!number) return false;
   return new RegExp(`(^|[^0-9])${number}([^0-9]|$)`).test(String(url));
+}
+
+/*
+ * Ownership evidence: the URL embeds the current cid, or it embeds the
+ * aid on a single-page video. Multi-page videos share one aid across all
+ * parts, so an aid-only match could be another part's subtitles.
+ */
+function ownsUrl(url, ctx) {
+  if (!url || !ctx) return false;
+  if (matchesNumber(url, ctx.cid)) return true;
+  const singlePage = !ctx.pageCount || Number(ctx.pageCount) <= 1;
+  return singlePage && matchesNumber(url, ctx.aid);
 }
 
 async function probe(env, item) {
@@ -99,20 +113,12 @@ async function discover(ctx, env) {
     };
   }
 
-  const owned = candidates.filter(
-    (e) => matchesNumber(e.url, ctx.cid) || matchesNumber(e.url, ctx.aid)
-  );
-
-  let pool;
-  if (owned.length) {
-    pool = owned;
-  } else if (capture.navigated) {
+  const pool = candidates.filter((e) => ownsUrl(e.url, ctx));
+  if (!pool.length) {
     return {
       tracks: [],
-      note: '捕获到的字幕 URL 与当前视频不匹配（来自上一个视频，已跳过）'
+      note: `捕获到 ${candidates.length} 条字幕 URL，但与当前视频不匹配（已跳过，避免串用其他视频的字幕）`
     };
-  } else {
-    pool = candidates;
   }
 
   const tracks = [];
@@ -131,5 +137,5 @@ async function discover(ctx, env) {
 }
 
 BS.resolvers = BS.resolvers || {};
-BS.resolvers.playerResource = { name: 'player-resource', discover };
+BS.resolvers.playerResource = { name: 'player-resource', discover, ownsUrl };
 BS.resourceCapture = capture;

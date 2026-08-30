@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-08-30
+
+### Fixed
+
+- **Cross-video subtitle contamination** — the reported bug where each click on
+  「提取字幕」 produced different subtitles, sometimes from another video:
+  - Player-resource capture no longer has an unvalidated fallback: captured
+    URLs without ownership evidence are never probed, regardless of whether an
+    in-tab navigation happened. Ownership = URL embeds the current `cid`, or
+    embeds the current `aid` on a single-page video (`ownsUrl` in
+    `src/resolvers/player-resource.js`). Multi-page videos share one `aid`
+    across parts, so aid-only matches (potentially another part's subtitles)
+    are rejected.
+  - The merged track list shown in the panel is ownership-filtered as well, so
+    a foreign URL can no longer be offered in the track dropdown.
+  - Stale async results can no longer land after an SPA navigation: every
+    extract / track load carries a generation token; SPA navigation bumps the
+    token (discarding in-flight results) and releases the busy state so the
+    new video can be extracted immediately.
+  - Multi-page `__INITIAL_STATE__` no longer silently falls back to the first
+    part's cid when the requested page is missing; video contexts now carry
+    `pageCount`.
+  - `clearResult` also clears the track dropdown options and diagnostics text
+    (no leftover UI from the previous video).
+
+### Changed
+
+- Behavior trade-off: a captured subtitle URL that embeds neither `cid` nor
+  `aid` (possible for some human CC URLs) is no longer used as a last-resort
+  fallback, even when it provably came from the current video. Correctness
+  (never showing another video's subtitles) wins over fallback coverage; the
+  diagnostics panel explains the rejection.
+- Userscript header now declares `@noframes`.
+
 ## [1.0.0] - 2026-08-29
 
 ### Added

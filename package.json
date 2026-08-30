@@ -1,6 +1,6 @@
 {
   "name": "bili-subtitle",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Resilient Bilibili CC & AI subtitle userscript",
   "license": "MIT",

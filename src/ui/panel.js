@@ -212,7 +212,9 @@ function createPanel(handlers) {
       actions.hidden = true;
       preview.hidden = true;
       msg.hidden = true;
+      tracksSel.innerHTML = '';
       tracksSel.hidden = true;
+      diagPre.textContent = '';
       diagBox.hidden = true;
     }
   };
