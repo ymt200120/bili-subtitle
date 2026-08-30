@@ -59,7 +59,9 @@ async function discover(ctx, env) {
         lan: t.lan,
         lanDoc: t.lanDoc || t.label,
         url: t.url,
-        source: 'web-view'
+        source: 'web-view',
+        contextKey: ctx.contextKey,
+        trust: BS.trust.CURRENT_VIDEO
       })
     ),
     note: `${tracks.length} 条轨道`

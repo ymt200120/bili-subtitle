@@ -1,11 +1,15 @@
 /*
- * Strategy A - Legacy JSON subtitle list.
+ * Legacy JSON subtitle list - DIAGNOSTIC PROBE ONLY since v1.0.2.
  *
  * GET /x/player/v2?bvid=&cid=  ->  data.subtitle.subtitles[]
  *
- * Verified behavior: anonymous requests return code 0 with an EMPTY
- * subtitles array for AI-only videos, so an empty list is reported as
- * "ok but empty (possibly login-gated)", not as a hard failure.
+ * This endpoint is UNSIGNED. It has been independently reported (risk
+ * control degradation) to answer HTTP 200 / code 0 with valid-looking
+ * subtitles that actually belong to a DIFFERENT video, so its tracks are
+ * stamped UNTRUSTED_LEGACY: the pipeline never loads their bodies, never
+ * lets one become the winner and never offers them in the track dropdown.
+ * It still runs (concurrently, metadata only) so diagnostics can compare
+ * it against the trusted resolvers and the login hint stays accurate.
  */
 
 async function discover(ctx, env) {
@@ -35,7 +39,9 @@ async function discover(ctx, env) {
       url: s.subtitle_url,
       source: 'legacy',
       aiType: s.ai_type,
-      aiStatus: s.ai_status
+      aiStatus: s.ai_status,
+      contextKey: ctx.contextKey,
+      trust: BS.trust.UNTRUSTED_LEGACY
     })
   );
 

@@ -5,6 +5,67 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-08-30
+
+> Real-browser repro after v1.0.1: on one video, consecutive extractions
+> returned a DIFFERENT video's subtitles, then the correct ones. v1.0.1
+> hardened player-resource ownership and stale SPA handling, but did not
+> cover incorrect yet syntactically valid responses from the unsigned
+> legacy player endpoint (`/x/player/v2`).
+
+### Fixed
+
+- **Trust model for resolvers** (`src/core/model.js`, `src/resolvers/index.js`):
+  availability is no longer authority. Tracks are stamped with a trust level
+  (`SIGNED_METADATA` / `CURRENT_VIDEO_METADATA` / `CURRENT_PLAYER_RESOURCE` /
+  `UNTRUSTED_LEGACY`) and a `contextKey` (bvid:cid). A track can become the
+  winner or enter the selectable dropdown only when its trust is winnable AND
+  its contextKey matches the current video — fail closed.
+- **Unsigned legacy endpoint demoted to a diagnostic probe**
+  (`src/resolvers/legacy.js`): independently reported (risk-control
+  degradation) to answer HTTP 200 with valid-looking subtitles belonging to a
+  different video. It still runs concurrently (metadata only) for comparison
+  and login hints, but its body is never fetched, it can never win, and its
+  tracks never appear in the dropdown.
+- **Commit-time guards** (`src/main.js`): a result is applied only when both
+  the generation token is current AND the page still parses to the video the
+  result belongs to; track changes are refused (fail closed) unless the track
+  passes the trust/contextKey check.
+- **Player-resource navigation epoch** (`src/resolvers/player-resource.js`):
+  captured entries carry the SPA navigation epoch; only current-epoch entries
+  are considered, in addition to the existing ownership check.
+- **SPA reset precision** (`src/core/spa.js`): the reset now fires only when
+  the video identity (bvid/page) actually changes, instead of on every
+  pushState/replaceState (URL normalization no longer wipes results).
+
+### Added
+
+- **Signed WBI resolver** (`src/resolvers/signed-wbi.js`, new primary):
+  `/x/player/wbi/v2` with real WBI signing — `src/core/md5.js` (self-contained
+  RFC 1321 MD5, constants hardcoded after observing engine-precision drift in
+  the `Math.sin` formula) and `src/core/wbi.js` (nav key fetch incl. anonymous
+  `code -101` responses, 15-min key cache, invalidation on `-352`/`-403`/HTTP
+  412 with exactly one retry). Anonymous and logged-in endpoint behavior is
+  pending browser validation (docs/PROTOCOL.md §2b).
+- **Diagnostics** (`src/core/diagnostics.js`, `src/resolvers/index.js`): every
+  extract run has a `run #N`; the panel shows Context (bvid/aid/cid/contextKey),
+  per-resolver steps with trust levels, and an explicit Winner/Decision block;
+  console logs carry `[bili-subtitle] [run:N]`. A diagnostic-only cross-check
+  warns when the untrusted legacy probe disagrees with the trusted result.
+- Tests: 24 new cases covering the regression above (valid-but-wrong HTTP 200
+  legacy response must never win), WBI signer vectors (RFC 1321 + community
+  protocol reference), key cache/invalidation, contextKey mismatch, epoch
+  rejection and multi-page ownership. 72 total.
+
+### Changed
+
+- Resolver order is now **signed-wbi → web-view → player-resource**, with
+  legacy-json as a metadata-only diagnostic probe. Users whose only working
+  source was the unsigned endpoint may now get a precise failure instead of a
+  possibly-wrong subtitle — that is the intended trade-off (`no result >
+  wrong result`).
+- `.gitignore` now excludes `.zcode/` (local tooling state).
+
 ## [1.0.1] - 2026-08-30
 
 ### Fixed

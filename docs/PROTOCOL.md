@@ -29,15 +29,42 @@
 本项目优先使用它（零请求），并在 SPA 状态下校验 `bvid` 一致性，
 不一致则回退到该 API。
 
-## 2. 旧版字幕列表（Strategy A）
+## 2. 旧版字幕列表（legacy / 诊断探针，v1.0.2 起非权威）
 
 ### `GET https://api.bilibili.com/x/player/v2?bvid=<BV>&cid=<CID>`
 
-- ✅ 匿名返回 `{"code":0,"data":{"subtitle":{"subtitles":[...]}}}`
+- ✅ 匿名返回 `{"code":0,"data":{"subtitle":{"subtitles":[]}}}`
 - ✅ 匿名访问 AI 字幕视频时 `subtitles` 为 **空数组**（不报错）——
   「列表为空」≠「视频没有字幕」，很可能是登录门控
 - 📚 登录后返回 `subtitle.subtitles[]`，每项含 `id / lan / lan_doc / subtitle_url / ai_type / ai_status`
-- 本项目使用 **非 wbi 版本**；wbi 签名版本（`/x/player/wbi/v2`）行为未知，未使用
+- ⚠️ **非权威（non-authoritative）**：该接口无 WBI 签名。2026-08 有独立项目记录
+  在风控降级时它可能返回 HTTP 200、`code = 0`、内容语法完全合法但**属于其他视频**
+  的字幕（「AI 字幕张冠李戴」，见 adolescen-he/bilibili-video-transcriber 的 README）。
+  本项目自身也未能在诊断中排除该来源（真实浏览器复现：同一视频连续提取结果漂移）。
+- 因此 **v1.0.2 起本项目不再把该接口的结果作为最终答案**：它仅并发运行一个
+  metadata-only 诊断探针，用于与可信接口对比与登录提示；其轨道标记
+  `UNTRUSTED_LEGACY`，正文永不下载、永不成为 winner、永不进入可选取列表。
+
+## 2b. WBI 签名与签名版 metadata（Strategy A'，v1.0.2 起首选）
+
+### `GET https://api.bilibili.com/x/player/wbi/v2?aid=<AID>&cid=<CID>&wts=<ts>&w_rid=<md5>`
+
+响应结构与 `x/player/v2` 相同（`data.subtitle.subtitles[]`）。签名协议（📚 prior art，
+见文末 bilibili-API-collect 镜像文档，已由本项目确定性测试向量验证）：
+
+- `GET https://api.bilibili.com/x/web-interface/nav` 返回 `data.wbi_img.img_url / sub_url`；
+  **匿名（code -101）时同样携带**，文件名即 `img_key` / `sub_key`
+- `mixin_key` = `img_key + sub_key` 按 64 位固定重排表 `MIXIN_KEY_ENC_TAB` 重排后取前 32 位
+- 请求参数加入 `wts`（秒级时间戳），按 key 字典序排序、值去除 `!'()*` 后 URL 编码，
+  拼接 `mixin_key` 取 MD5 得 `w_rid`
+- 本项目实现：`src/core/md5.js`（自实现 MD5，RFC 1321 常量表硬编码并通过 RFC/Node
+  crypto 双重向量验证）与 `src/core/wbi.js`（密钥缓存 TTL 15 分钟；`-352`/`-403`/HTTP 412
+  视为签名失效：清缓存、重新 nav、**恰好重试一次**）
+- ✅ 签名算法与社区参考的确定性向量一致（mixin_key 与 w_rid 均有固定测试用例）
+- ⚠️ 匿名 / 登录态下 `wbi/v2` 的实际返回（空列表语义、风控行为）：**待浏览器验证**
+- ⚠️ 请求头：沿用页面语义（GM 请求带 `Referer: https://www.bilibili.com/`，
+  与浏览器原生行为一致）；有服务端项目称 WBI 接口不应带 Referer，与浏览器行为矛盾，
+  待实测确认
 
 ## 3. 新版字幕 metadata（Strategy B，Protobuf）
 

@@ -2,18 +2,53 @@
  * Core data model + track scoring/selection.
  */
 
+/*
+ * Resolver trust levels. Availability (a resolver returned tracks) is
+ * separate from authority (the tracks are provably bound to the current
+ * video). Only winnable tracks may become the winner or enter the
+ * selectable track list.
+ *
+ * SIGNED_METADATA: metadata requested through a WBI-signed endpoint.
+ * CURRENT_VIDEO_METADATA: metadata requested with the current aid+cid in
+ *   the query (the endpoint binds the request to the video).
+ * CURRENT_PLAYER_RESOURCE: URL captured from the player's own request and
+ *   proven to embed the current cid/aid (see player-resource.ownsUrl).
+ * UNTRUSTED_LEGACY: unsigned /x/player/v2 — observed in the wild (risk
+ *   control degradation) returning HTTP 200 with valid-looking subtitles
+ *   that belong to a DIFFERENT video. Diagnostic only; never committable.
+ */
+const TRUST = {
+  SIGNED: 'SIGNED_METADATA',
+  CURRENT_VIDEO: 'CURRENT_VIDEO_METADATA',
+  CURRENT_PLAYER: 'CURRENT_PLAYER_RESOURCE',
+  UNTRUSTED_LEGACY: 'UNTRUSTED_LEGACY'
+};
+
+function isWinnableTrust(trust) {
+  return (
+    trust === TRUST.SIGNED ||
+    trust === TRUST.CURRENT_VIDEO ||
+    trust === TRUST.CURRENT_PLAYER
+  );
+}
+
 function makeVideoContext({ bvid, aid, cid, page, pageCount, title }) {
+  const bvidStr = String(bvid || '');
+  const cidNum = Number(cid) || 0;
   return {
-    bvid: String(bvid || ''),
+    bvid: bvidStr,
     aid: Number(aid) || 0,
-    cid: Number(cid) || 0,
+    cid: cidNum,
     page: Number(page) || 1,
     pageCount: Number(pageCount) || 1,
-    title: String(title || '')
+    title: String(title || ''),
+    // Stable identity of (video, part). Every track / result / document
+    // must carry this to be committable for this context.
+    contextKey: `${bvidStr}:${cidNum}`
   };
 }
 
-function makeTrack({ id, lan, lanDoc, url, source, aiType, aiStatus }) {
+function makeTrack({ id, lan, lanDoc, url, source, aiType, aiStatus, contextKey, trust }) {
   return {
     id: id == null ? '' : String(id),
     lan: String(lan || ''),
@@ -21,7 +56,9 @@ function makeTrack({ id, lan, lanDoc, url, source, aiType, aiStatus }) {
     url: BS.normalizeSubtitleUrl(url),
     source: String(source || ''),
     aiType: aiType == null ? null : aiType,
-    aiStatus: aiStatus == null ? null : aiStatus
+    aiStatus: aiStatus == null ? null : aiStatus,
+    contextKey: String(contextKey || ''),
+    trust: String(trust || '')
   };
 }
 
@@ -78,6 +115,8 @@ function mergeTracks(lists) {
 
 BS.makeVideoContext = makeVideoContext;
 BS.makeTrack = makeTrack;
+BS.trust = TRUST;
+BS.isWinnableTrust = isWinnableTrust;
 BS.normalizeSubtitleUrl = normalizeSubtitleUrl;
 BS.languageScore = languageScore;
 BS.mergeTracks = mergeTracks;

@@ -18,7 +18,8 @@
     ↓
 点击「字幕」（自动开始提取）
     ↓
-策略链自动尝试：旧版 JSON API → 新版 Protobuf API → 播放器已加载资源
+策略链自动尝试：WBI 签名 API → 新版 Protobuf API → 播放器已加载资源
+    （未签名的旧版 API 仅作诊断对比，不作为字幕来源）
     ↓
 成功提取，或给出精确诊断
 ```
@@ -46,30 +47,39 @@
 flowchart TD
     A[点击「字幕」] --> B[VideoContext resolver<br/>__INITIAL_STATE__ → view API]
     B -->|失败| Z[精确诊断：哪个环节失败]
-    B --> C[Strategy A: Legacy JSON<br/>x/player/v2]
-    C -->|轨道 + 正文可用| OK[✓ 字幕]
-    C -->|空列表 / 正文 403·404| D[Strategy B: Web Subtitle<br/>x/v2/subtitle/web/view · Protobuf]
+    B --> A1[Strategy A': Signed WBI<br/>x/player/wbi/v2]
+    A1 -->|轨道 + 正文可用| OK[✓ 字幕]
+    A1 -->|空列表 / 正文 403·404| D[Strategy B: Web Subtitle<br/>x/v2/subtitle/web/view · Protobuf]
     D -->|轨道 + 正文可用| OK
-    D -->|空 / 失败| E[Strategy C: Player Resource<br/>PerformanceObserver 捕获]
+    D -->|空 / 失败| E[Strategy C: Player Resource<br/>PerformanceObserver 捕获<br/>epoch + 归属双重校验]
     E -->|捕获 URL 可解析| OK
     E -->|无捕获| Z
-    C -.正文 403/404 时.-> C2[自动重新获取 metadata 再试一轮]
+    A1 -.正文 403/404 时.-> A2[自动重新获取 metadata 再试一轮]
+    L[legacy /x/player/v2<br/>仅诊断探针 · 未采信]
+    B -.并发对比.-> L
 ```
 
 要点：
 
-- **Strategy B（Protobuf）不需要用户先手动打开 AI 字幕**——登录后脚本直接请求新版 metadata 接口并解析（匿名时该接口返回空 data message，诊断会提示「需要登录」）
+- **字幕归属是 correctness 问题**：v1.0.2 引入 trust model——`SIGNED_METADATA`（WBI 签名）> `CURRENT_VIDEO_METADATA`（请求显式绑定 aid+cid）> `CURRENT_PLAYER_RESOURCE`（捕获 URL 已证明内嵌当前 cid/aid）；每条轨道、每个结果都绑定 `contextKey`（bvid:cid），面板与轨道选择只接受「可信 + 归属匹配」的内容
+- **未签名旧版接口 `/x/player/v2` 降级为诊断探针**：有独立项目记录它在风控降级时返回 HTTP 200、内容合法但**属于其他视频**的字幕；它的结果只用于对比诊断与登录提示，永不作为字幕来源（详见 [docs/PROTOCOL.md](docs/PROTOCOL.md) §2/§2b）
+- **fail-closed 原则**：宁可提示「无法可靠确认字幕归属」，也不显示可能来自其他视频的字幕
 - 签名字幕 URL 短期有效（403/404）：脚本**不缓存**，自动重取 metadata
-- 播放器资源捕获是**最后兜底**，且只探测能证明属于当前视频的 URL（内嵌当前 cid，或单 P 视频内嵌当前 aid）；无法证明归属的捕获 URL 一律不用，绝不串用其他视频的字幕
-- 每一步的 ✓/✗/○ 都显示在面板「获取路径」中，Console 使用 `[bili-subtitle]` 前缀，签名参数一律遮蔽
+- 每次提取有 `run #N` 编号，面板「获取路径」显示 Context / 各策略 / Winner；Console 日志带 `[bili-subtitle] [run:N]` 前缀，`auth_key`/`w_rid`/`wts` 等一律遮蔽
 
 诊断示例：
 
 ```text
-✓ video-context · BV1BbKw6XEWq · cid 40065631429 · P1
-✓ legacy-json · 字幕列表为空（AI 轨道通常需要登录）
-✓ web-view · 1 条轨道
-✓ web-view#fetch · 中文（AI） · 1342 条
+Extract run #17
+Context · BV1BbKw6XEWq · aid 116… · cid 40065631429 · P1 · key BV1BbKw6XEWq:40065631429
+
+✓ video-context · BV1BbKw6XEWq · aid … · cid 40065631429 · P1 · key BV1BbKw6XEWq:40065631429
+✓ [SIGNED_METADATA] signed-wbi · 1 条轨道
+✓ signed-wbi#fetch · 中文（AI） · 1342 条
+✓ [UNTRUSTED_LEGACY] legacy-json(诊断) · 1 条轨道（未采信：未签名接口不作为结果来源）
+
+Winner · signed-wbi · trust SIGNED_METADATA · key BV1BbKw6XEWq:40065631429
+Ignored · legacy-json（UNTRUSTED_LEGACY：未签名接口不作为结果来源）
 ```
 
 ## 为什么又造一个轮子？/ Why another subtitle extractor?
@@ -103,9 +113,11 @@ flowchart TD
 
 | 层级 | 状态 |
 |---|---|
-| 单元测试（48 项：URL/字幕解析/SRT/Protobuf/策略链/归属校验/日志脱敏） | ✅ `npm test` 全部通过 |
+| 单元测试（72 项：URL/字幕解析/SRT/Protobuf/策略链/WBI 签名向量/归属校验/日志脱敏） | ✅ `npm test` 全部通过 |
+| WBI 签名算法（mixin_key 重排、w_rid 计算） | ✅ 与社区参考的确定性测试向量一致 |
 | 匿名接口行为（view API、player/v2 空列表、web/view 空protobuf） | ✅ 本机验证 2026-08-29，见 [docs/PROTOCOL.md](docs/PROTOCOL.md) |
-| 登录态完整链路（重点：Strategy B 返回 ai-zh 轨道） | ⚠️ **需要浏览器验证**，协议依据见 PROTOCOL.md |
+| **`/x/player/wbi/v2` 的匿名/登录态实际行为** | ⚠️ **需要浏览器验证**（v1.0.2 新增，见 PROTOCOL §2b） |
+| 登录态完整链路（重点：signed-wbi / Strategy B 返回 ai-zh 轨道） | ⚠️ **需要浏览器验证**，协议依据见 PROTOCOL.md |
 | Firefox + Violentmonkey 的 GM arraybuffer | ⚠️ 管理器声明支持，未实测 |
 
 ## 兼容性 / Compatibility
@@ -119,12 +131,14 @@ flowchart TD
 
 | 现象 | 诊断 | 处理 |
 |---|---|---|
-| 两个接口都显示「空轨道」 | 多数情况是未登录 | 登录 B 站后点「提取字幕」 |
+| `signed-wbi` 显示 code -352 / HTTP 412 | WBI 签名被风控拒绝 | 脚本会自动刷新密钥并重试一次；若反复出现，稍后重试并提 issue |
+| 两个可信接口都显示「空轨道」 | 多数情况是未登录 | 登录 B 站后点「提取字幕」 |
+| 提示「未签名接口返回了轨道，但无法证明归属」 | legacy 探针有轨道但未采信 | 这是预期保护行为；以可信接口/播放器捕获结果为准 |
 | `legacy-json#fetch` 显示 HTTP 403/404 | 签名 URL 过期 | 脚本会自动重取；若仍失败，稍后重试 |
 | `player-resource` 显示 ○（无捕获） | 播放器还没加载过字幕 | 在播放器打开「字幕/CC」选 AI 字幕，让字幕出现一次，再点「提取字幕」 |
-| `player-resource` 显示「与当前视频不匹配」 | 捕获到的字幕 URL 无法证明属于当前视频 | 在播放器打开「字幕/CC」选 AI 字幕让播放器实际加载一次，再点「提取字幕」 |
+| `player-resource` 显示「与当前视频不匹配」 | 捕获到的字幕 URL 无法证明属于当前视频 | 在播放器打开「字幕/CC」让播放器实际加载一次，再点「提取字幕」 |
 | 面板不出现 | 脚本未注入 | 确认脚本管理器已启用且匹配当前页面 |
-| 切换视频后字幕不对 | — | v1.0.1 起：SPA 导航重置全部状态并作废在途请求；捕获 URL 严格校验归属，多 P 视频仅 aid 匹配的 URL 不再采用。如仍遇异常请提 issue 附「获取路径」内容 |
+| 提取结果疑似不属于自己的视频 | — | v1.0.2 起未签名接口的结果永远不会展示；如仍遇到，复制面板「获取路径」整块内容（含 run #N）提 issue |
 
 ## 开发 / Development
 
@@ -173,23 +187,25 @@ src/
 A single-file userscript that extracts Bilibili CC & AI subtitles with automatic fallback:
 
 ```text
-Legacy JSON API (x/player/v2)
+WBI-signed player metadata API (x/player/wbi/v2)
   ↓ empty / expired?
 Web Subtitle metadata API (x/v2/subtitle/web/view, protobuf)
   ↓ empty / failed?
-Player resource capture (PerformanceObserver)
+Player resource capture (PerformanceObserver, epoch + ownership proof)
   ↓ failed?
-Precise per-strategy diagnostics (✓ / ✗ / ○ with reasons and next steps)
+Precise per-strategy diagnostics (✓ / ✗ / ○ with runId, context and winner)
 ```
 
 - Zero configuration, no cookie access, no telemetry, no video/audio download, no ASR
+- Every track is bound to the video context (`contextKey` = bvid:cid) and a trust level; only trusted, context-matching tracks can be shown or selected — **fail closed: no subtitle is better than a valid subtitle from the wrong video**
+- The unsigned legacy endpoint (`/x/player/v2`) is diagnostic-only: it has been reported (risk-control degradation) to return valid-looking subtitles belonging to a different video
 - Signed subtitle URLs are never cached; 403/404 triggers automatic metadata re-fetch
-- Player resource capture is reset on SPA navigation, and a captured URL is only used when it provably belongs to the current video (embeds the current cid, or the current aid on single-page videos) — no cross-video contamination
+- Player resource capture is reset on SPA navigation, and a captured URL is only used when it provably belongs to the current video (embeds the current cid, or the current aid on single-page videos)
 - Exports: copy plain text, copy timestamped text, TXT, SRT, JSON
 - Only 4 formats by design — the value is resilience and diagnostics, not feature count
 
 **Why another extractor?** Other projects already cover multi-format export, batch download, CLI, Chrome extensions and AI-agent workflows (see the table above). This project targets one narrow goal: a single userscript that follows Bilibili's shifting subtitle endpoints automatically and tells you exactly why when it cannot. It is not affiliated with Bilibili; it only reads subtitles already offered to the current user.
 
-**Verification status:** 48 unit tests pass (`npm test`); anonymous endpoint behavior verified from a dev environment on 2026-08-29; the full logged-in path (especially the protobuf strategy) is **pending real-browser validation** — see [docs/PROTOCOL.md](docs/PROTOCOL.md) for protocol evidence and open items.
+**Verification status:** 72 unit tests pass (`npm test`), including deterministic WBI signing vectors and a regression test for the valid-but-wrong unsigned legacy response; anonymous endpoint behavior verified from a dev environment on 2026-08-29; the WBI-signed endpoint and the full logged-in path are **pending real-browser validation** — see [docs/PROTOCOL.md](docs/PROTOCOL.md) for protocol evidence and open items.
 
 **Install:** <https://raw.githubusercontent.com/ymt200120/bili-subtitle/main/bili-subtitle.user.js>

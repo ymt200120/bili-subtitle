@@ -20,12 +20,15 @@ export const SRC_FILES = [
   'src/core/cues.js',
   'src/core/exporters.js',
   'src/core/diagnostics.js',
+  'src/core/md5.js',
+  'src/core/wbi.js',
   'src/core/protobuf.js',
   'src/core/net.js',
   'src/core/spa.js',
   'src/resolvers/video-context.js',
   'src/resolvers/legacy.js',
   'src/resolvers/web-view.js',
+  'src/resolvers/signed-wbi.js',
   'src/resolvers/player-resource.js',
   'src/resolvers/index.js'
 ];

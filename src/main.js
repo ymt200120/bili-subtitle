@@ -51,6 +51,21 @@ function baseName(state) {
   );
 }
 
+/*
+ * Current video identity straight from the URL. Used as a commit-time
+ * guard: even if the generation token is still current (e.g. a missed
+ * SPA hook), a result computed for a different bvid/page must not land.
+ */
+function currentVideoIdentity() {
+  const parsed = BS.parseVideoUrl(location.href);
+  return parsed ? { bvid: parsed.bvid, page: parsed.page || 1 } : null;
+}
+
+function identityMatches(ctx) {
+  const fresh = currentVideoIdentity();
+  return Boolean(fresh && ctx && fresh.bvid === ctx.bvid && fresh.page === ctx.page);
+}
+
 function applyResult(state, panel, result) {
   state.tracks = result.tracks || [];
   panel.setDiag(result.diag.render());
@@ -91,11 +106,19 @@ async function onExtract(state, panel) {
   try {
     const result = await BS.pipeline.extract(makeEnv(state, panel, stale));
     if (stale()) {
-      BS.log('提取结果已过期（视频已切换），丢弃');
+      BS.log(`[run:${result && result.runId}]`, '提取结果已过期（视频已切换），丢弃');
+      return;
+    }
+    // Commit needs BOTH conditions: current generation AND the page still
+    // being the video this result belongs to.
+    if (!identityMatches(result.ctx)) {
+      BS.log(`[run:${result.runId}]`, '结果与当前页面视频不一致，丢弃');
+      panel.setStatus('页面视频已变化，请重新提取');
       return;
     }
     state.ctx = result.ctx || state.ctx;
     applyResult(state, panel, result);
+    if (result.runId) panel.setStatus(`提取成功（run #${result.runId}）`);
   } catch (e) {
     if (stale()) {
       BS.log('提取错误已过期（视频已切换），丢弃');
@@ -117,6 +140,14 @@ async function onExtract(state, panel) {
 async function onTrackChange(state, panel, key) {
   const track = panel.findTrack(state.tracks, key);
   if (!track) return;
+  // Fail closed: only a track provably bound to the current video context
+  // may be loaded.
+  if (!BS.pipeline.isSelectableTrack(track, state.ctx)) {
+    panel.setStatus('该轨道与当前视频不匹配，已拒绝');
+    panel.setMessage('轨道归属校验失败，请点「提取字幕」重新获取。');
+    BS.warn('track change 拒绝：trust/contextKey 校验未通过', BS.sanitizeUrl(track.url));
+    return;
+  }
   const gen = ++state.gen;
   const stale = () => gen !== state.gen;
   panel.setStatus(`正在读取：${track.lanDoc || track.lan}…`);
@@ -124,6 +155,11 @@ async function onTrackChange(state, panel, key) {
     const cues = await BS.pipeline.loadTrackBody(track, makeEnv(state, panel, stale));
     if (stale()) {
       BS.log('轨道结果已过期，丢弃');
+      return;
+    }
+    if (!identityMatches(state.ctx)) {
+      BS.log('轨道结果与当前页面视频不一致，丢弃');
+      panel.setStatus('页面视频已变化，请重新提取');
       return;
     }
     state.track = track;
