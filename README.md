@@ -186,6 +186,11 @@ src/
 
 `docs/prototype/1.js` 是本项目 v1.0.0 之前的真实可运行原型（已在真实 B 站视频上验证过基础链路），现归档作参考，不参与构建。
 
+## 社区 / Community
+
+本项目认可并感谢 [LINUX DO](https://linux.do/) 作为开发者交流与开源分享的社区。
+This project recognizes and appreciates [LINUX DO](https://linux.do/) as an open community for developer discussion and open-source sharing.
+
 ## Acknowledgements / Prior Art
 
 本项目的技术路径站在以下公开项目的肩膀上，特此致谢（均为独立实现，未复制源码）：

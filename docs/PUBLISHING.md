@@ -96,3 +96,12 @@ git push origin v<VERSION>
 发布页配一张真实 UI 截图会显著降低理解成本。请从真实浏览器截取（不要伪造），
 建议内容：面板打开且提取成功、可见「获取路径」诊断块。放入 `docs/screenshots/`
 后在此处与 README 引用。
+
+## 7. LINUX DO 开源推广
+
+在 LINUX DO 以「开源推广」发帖前自查：
+
+- 项目保持完整开源：本仓库即全部运行时代码（`src/` + 构建产物 `bili-subtitle.user.js`）
+- README 含 LINUX DO 社区链接与认可（见「社区 / Community」节）
+- 使用 LINUX DO 当前的开源推广模板/规则；发帖前核对社区最新规则
+- 不暗示 LINUX DO 官方背书、审核通过或赞助
