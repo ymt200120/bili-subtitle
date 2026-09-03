@@ -33,6 +33,7 @@ const FILES = [
   'src/resolvers/signed-wbi.js',
   'src/resolvers/player-resource.js',
   'src/resolvers/index.js',
+  'src/ui/display-mode.js',
   'src/ui/panel.js',
   'src/main.js'
 ];

@@ -30,7 +30,8 @@ export const SRC_FILES = [
   'src/resolvers/web-view.js',
   'src/resolvers/signed-wbi.js',
   'src/resolvers/player-resource.js',
-  'src/resolvers/index.js'
+  'src/resolvers/index.js',
+  'src/ui/display-mode.js'
 ];
 
 export function loadSrc(extra = {}) {

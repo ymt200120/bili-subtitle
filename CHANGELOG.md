@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-09-04
+
+### Fixed
+
+- Hide the floating subtitle button and panel while Bilibili is in web
+  fullscreen mode (player container `data-screen="web"`).
+- Restore the subtitle button after leaving web fullscreen or native
+  fullscreen (Fullscreen API); if the panel was open when entering an
+  immersive mode it stays closed afterwards.
+- Wide-screen mode (`data-screen="wide"`) remains unaffected: the button
+  stays visible.
+
 ## [1.0.3] - 2026-08-30
 
 ### Changed

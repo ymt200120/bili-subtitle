@@ -46,6 +46,12 @@ const STYLE = `
 #bs-diag-box summary { cursor: pointer; color: #888; font-size: 12px; }
 #bs-diag { margin: 6px 0 0; padding: 8px 10px; background: #f7f8fa;
   border-radius: 8px; white-space: pre-wrap; font: 11px/1.7 ui-monospace, Menlo, Consolas, monospace; }
+/* Player immersive modes (web fullscreen / native fullscreen): hide the
+   floating UI completely — no invisible hitbox left over the controls. */
+#bs-root.bs-player-fullscreen-hidden #bs-pill,
+#bs-root.bs-player-fullscreen-hidden #bs-panel {
+  display: none !important;
+}
 `;
 
 const TEMPLATE = `
@@ -216,10 +222,22 @@ function createPanel(handlers) {
       tracksSel.hidden = true;
       diagPre.textContent = '';
       diagBox.hidden = true;
+    },
+
+    /*
+     * Player immersive mode (web fullscreen / native fullscreen).
+     * Hides the whole floating UI via CSS (display:none — no hitbox);
+     * closing the panel here is one-way: exiting fullscreen restores the
+     * pill but never reopens the panel on its own.
+     */
+    setPlayerFullscreenHidden(hidden) {
+      root.classList.toggle('bs-player-fullscreen-hidden', !!hidden);
+      if (hidden) close();
     }
   };
 
   return api;
 }
 
-BS.ui = { createPanel };
+BS.ui = BS.ui || {};
+BS.ui.createPanel = createPanel;

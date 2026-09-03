@@ -238,11 +238,18 @@ function boot() {
 
   BS.resourceCapture.install();
 
+  // Hide the floating UI in Bilibili's immersive player modes (web
+  // fullscreen / native fullscreen); state-driven, see display-mode.js.
+  const displayModeWatcher = BS.ui.displayMode.watchPlayerScreenMode(({ hidden }) => {
+    panel.setPlayerFullscreenHidden(hidden);
+  });
+
   BS.installSpaHooks(() => {
     // Invalidate any in-flight extract / track load for the previous
     // video; their results must never land on the new video's panel.
     state.gen++;
     BS.resourceCapture.reset();
+    displayModeWatcher.rebind();
     state.extracting = false;
     panel.setBusy(false);
     state.ctx = null;
