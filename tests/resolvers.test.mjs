@@ -18,6 +18,7 @@ const EMPTY_PLAYER = {
 
 // Empty-but-OK responses for the trusted metadata endpoints.
 const emptyWbi = () => ({ code: 0, data: { subtitle: { subtitles: [] } } });
+const emptyDmView = () => ({ code: 0, data: { subtitle: { subtitles: [] } } });
 const emptyWebViewBinary = () => Uint8Array.from([0x0a, 0x00]);
 
 // The video under test (the "car video").
@@ -88,6 +89,7 @@ function baseJsonHandlers(overrides = {}) {
     'x/web-interface/nav': () => NAV_RESPONSE,
     'x/player/v2': () => EMPTY_PLAYER,
     'x/player/wbi/v2': () => emptyWbi(),
+    'x/v2/dm/view': () => emptyDmView(),
     ...overrides
   };
 }

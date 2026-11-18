@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-11-19
+
+### Added
+
+- **Anonymous subtitle channel (`dm-view`, Strategy A2).** The player's
+  subtitle list is gated by `need_login_subtitle`, so signed-out visitors see
+  an empty array even when Bilibili already generated AI subtitles. The
+  danmaku-view payload (`GET /x/v2/dm/view?aid=&oid=&type=1`) carries the
+  same `subtitle.subtitles[]` block without that gate.
+  - verified anonymously on 2026-11-19: 96 ranking videos / 100 tracks
+    (58 `ai-zh`, all with fetchable bodies); same `src/` code extracts 3 live
+    videos in 180-700 ms
+  - ownership is verifiable from the URL: AI tracks live at
+    `.../prod/<aid><cid><hash>`, so a track is `verified` when the URL embeds
+    the current aid+cid, `foreign` (dropped) when it embeds this aid with
+    another cid, and `query` (kept, labelled) when it carries no ids
+    (auto-translations, `/bfs/subtitle/` CC files)
+  - trust `CURRENT_VIDEO_METADATA`; pipeline order is now
+    signed-wbi → dm-view → web-view → player-resource
+  - diagnostics report the verified/foreign split per attempt
+
+### Changed
+
+- Empty-result hint no longer claims AI subtitles need a login: all-empty now
+  means the uploader never enabled CC / AI subtitles, and points at the ASR
+  fallback instead.
+- Video context is also used for the ASR size estimate (`duration`).
+
 ## [1.1.0] - 2026-11-19
 
 ### Added

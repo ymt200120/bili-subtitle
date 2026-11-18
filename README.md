@@ -21,8 +21,8 @@
     ↓
 点击「字幕」（自动开始提取）
     ↓
-策略链自动尝试：WBI 签名 API → 新版 Protobuf API → 播放器已加载资源
-    （未签名的旧版 API 仅作诊断对比，不作为字幕来源）
+策略链自动尝试：WBI 签名 API → 弹幕视图匿名通道 → 新版 Protobuf API → 播放器已加载资源
+    （未签名的旧版 /x/player/v2 仅作诊断对比，不作为字幕来源）
     ↓
 全部为空（UP 主没开 CC / AI 字幕）？面板给出「语音识别生成字幕」
     ↓                              点击后：音轨 → 必剪 ASR → 带时间轴字幕
@@ -70,7 +70,9 @@ flowchart TD
     B -->|失败| Z[精确诊断：哪个环节失败]
     B --> A1[Strategy A': Signed WBI<br/>x/player/wbi/v2]
     A1 -->|轨道 + 正文可用| OK[✓ 字幕]
-    A1 -->|空列表 / 正文 403·404| D[Strategy B: Web Subtitle<br/>x/v2/subtitle/web/view · Protobuf]
+    A1 -->|空列表 / 正文 403·404| A2N[Strategy A2: dm-view 匿名通道<br/>x/v2/dm/view<br/>ai-zh URL 内嵌 aid+cid 可校验]
+    A2N -->|轨道 + 正文可用| OK
+    A2N -->|空 / 失败| D[Strategy B: Web Subtitle<br/>x/v2/subtitle/web/view · Protobuf]
     D -->|轨道 + 正文可用| OK
     D -->|空 / 失败| E[Strategy C: Player Resource<br/>PerformanceObserver 捕获<br/>epoch + 归属双重校验]
     E -->|捕获 URL 可解析| OK
@@ -85,6 +87,7 @@ flowchart TD
 要点：
 
 - **字幕归属是 correctness 问题**：v1.0.2 引入 trust model——`SIGNED_METADATA`（WBI 签名）> `CURRENT_VIDEO_METADATA`（请求显式绑定 aid+cid）> `CURRENT_PLAYER_RESOURCE`（捕获 URL 已证明内嵌当前 cid/aid）；每条轨道、每个结果都绑定 `contextKey`（bvid:cid），面板与轨道选择只接受「可信 + 归属匹配」的内容
+- **匿名也能拿到 AI 字幕**（v1.2.0）：播放器的字幕列表受 `need_login_subtitle` 门控，未登录时 `/x/player/wbi/v2`、`/x/player/v2` 一律空数组；但弹幕视图接口 `/x/v2/dm/view` 带同样的 `subtitle` 块且不做该门控。实测 96 个榜单视频里 58 条 `ai-zh` 轨道可匿名获取并下载正文，且 `subtitle_url` 形如 `prod/<aid><cid><hash>`，**归属可由 URL 直接校验**；内嵌了本 aid 但不含本 cid（其他分 P）的轨道会被丢弃
 - **未签名旧版接口 `/x/player/v2` 降级为诊断探针**：有独立项目记录它在风控降级时返回 HTTP 200、内容合法但**属于其他视频**的字幕；它的结果只用于对比诊断与登录提示，永不作为字幕来源（详见 [docs/PROTOCOL.md](docs/PROTOCOL.md) §2/§2b）
 - **fail-closed 原则**：宁可提示「无法可靠确认字幕归属」，也不显示可能来自其他视频的字幕
 - 签名字幕 URL 短期有效（403/404）：脚本**不缓存**，自动重取 metadata
@@ -164,7 +167,7 @@ B 站「必剪」语音识别：resource/create → 分片 PUT → complete → 
 
 | 层级 | 状态 |
 |---|---|
-| 单元测试（98 项：URL/字幕解析/SRT/Protobuf/策略链/WBI 签名向量/归属校验/日志脱敏/ASR 全流程） | ✅ `npm test` 全部通过 |
+| 单元测试（105 项：URL/字幕解析/SRT/Protobuf/策略链/WBI 签名向量/归属校验/日志脱敏/dm-view/ASR 全流程） | ✅ `npm test` 全部通过 |
 | WBI 签名算法（mixin_key 重排、w_rid 计算） | ✅ 与社区参考的确定性测试向量一致 |
 | **跨视频字幕 bug（此前真实复现场景）** | ✅ **v1.0.2 已在真实浏览器验证：不再复现**（真实浏览器验证，2026-08-30） |
 | 匿名接口行为（view API、player/v2 空列表、web/view 空protobuf） | ✅ 本机验证 2026-08-29，见 [docs/PROTOCOL.md](docs/PROTOCOL.md) |
@@ -172,6 +175,7 @@ B 站「必剪」语音识别：resource/create → 分片 PUT → complete → 
 | **trust model / Winner 行为** | ✅ **已验证**：`signed-wbi` 以 `SIGNED_METADATA` 成为 Winner，未签名 legacy metadata 被 `UNTRUSTED_LEGACY` 标记并忽略 |
 | wbi/v2 匿名态完整行为、多账号/多风控场景矩阵 | ⚠️ 单一真实案例已验证，尚需更广覆盖 |
 | 登录态系统性矩阵（多账号 / Strategy B web-view 轨道内容） | ⚠️ 尚需更多验证，协议依据见 PROTOCOL.md |
+| **dm-view 匿名通道（免登录拿 AI 字幕）** | ✅ **已验证**：2026-11-19 匿名实测 96 个榜单视频 / 100 条轨道（58 条 `ai-zh` 全部可下载正文）；同一份 `src/` 代码跑通 3 个视频，180–700 ms 出结果（见 PROTOCOL §2c） |
 | **ASR 兜底全流程（playurl → 下载 → 必剪 → cues）** | ✅ **已验证**：2026-11-19 匿名端到端跑通，12 分 25 秒视频 → 357 条字幕，约 7 秒（同一份 `src/` 代码，见 PROTOCOL §8）；同日观测到连续多轮后 `HTTP 412` 人机验证 |
 | ASR 风控阈值（浏览器 Cookie / 登录态 / 不同 IP） | ⚠️ 未验证：匿名同 IP 约 4 轮后 `/task/result` 返回 412（其余端点仍正常） |
 | ASR 在真实浏览器的 GM 二进制 PUT（Tampermonkey / Violentmonkey） | ⚠️ 管理器声明支持 ArrayBuffer 请求体，未实测 |
@@ -190,7 +194,8 @@ B 站「必剪」语音识别：resource/create → 分片 PUT → complete → 
 | 现象 | 诊断 | 处理 |
 |---|---|---|
 | `signed-wbi` 显示 code -352 / HTTP 412 | WBI 签名被风控拒绝 | 脚本会自动刷新密钥并重试一次；若反复出现，稍后重试并提 issue |
-| 两个可信接口都显示「空轨道」 | 多数情况是未登录 | 登录 B 站后点「提取字幕」 |
+| 所有可信接口都显示「空轨道」 | 该视频确实没有 CC / AI 字幕（UP 未开启），不是登录问题 | 用面板上的「语音识别生成字幕」现场生成 |
+| `dm-view` 显示「N 条属于其他分 P，已丢弃」 | 响应里混入了同投稿其他分 P 的轨道 | 预期保护行为：只保留内嵌当前 aid+cid 的轨道 |
 | 提示「未签名接口返回了轨道，但无法证明归属」 | legacy 探针有轨道但未采信 | 这是预期保护行为；以可信接口/播放器捕获结果为准 |
 | `signed-wbi#fetch` / `web-view#fetch` 显示 HTTP 403/404 | 签名字幕 URL 过期 | 脚本会自动重取；若仍失败，稍后重试 |
 | `player-resource` 显示 ○（无捕获） | 播放器还没加载过字幕 | 在播放器打开「字幕/CC」选 AI 字幕，让字幕出现一次，再点「提取字幕」 |
@@ -236,6 +241,7 @@ This project recognizes and appreciates [LINUX DO](https://linux.do/) as an open
 - [ccBilly-aipm/bilibili-ai-subtitle](https://github.com/ccBilly-aipm/bilibili-ai-subtitle)：`/x/v2/subtitle/web/view` Protobuf 字段结构与 403 重取策略（协议依据详见 [docs/PROTOCOL.md](docs/PROTOCOL.md)）
 - [JoeyTeng/bilibili-helper PR #4](https://github.com/JoeyTeng/bilibili-helper/pull/4)：真实 Chrome/Tampermonkey 环境对二进制 metadata 响应的验证
 - [YukinoAsuna/bilibili-subtitle-extractor](https://github.com/YukinoAsuna/bilibili-subtitle-extractor)：播放器资源捕获思路
+- [1494948/bilibili-ai-subtitle-forcer](https://github.com/1494948/bilibili-ai-subtitle-forcer)：`x/v2/dm/view` 匿名通道与 `view/conclusion/get` 服务端生成队列的发现（本项目独立实现了解析、归属校验与信任分级）
 - [SocialSisterYi/bcut-asr](https://github.com/SocialSisterYi/bcut-asr)：必剪语音识别接口流程（`resource/create` → 分片上传 → `complete` → `task` → `task/result`）的协议依据，本项目用 JS 重新实现并补测了匿名可用性
 - [SocialSisterYi/bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)（已关停）：历史社区文档
 
@@ -254,6 +260,8 @@ A single-file userscript that extracts Bilibili CC & AI subtitles with automatic
 ```text
 WBI-signed player metadata API (x/player/wbi/v2)
   ↓ empty / expired?
+Danmaku-view subtitle channel (x/v2/dm/view — works signed out; AI URLs embed aid+cid for ownership checks)
+  ↓ empty / failed?
 Web Subtitle metadata API (x/v2/subtitle/web/view, protobuf)
   ↓ empty / failed?
 Player resource capture (PerformanceObserver, epoch + ownership proof)
@@ -265,6 +273,7 @@ Precise per-strategy diagnostics (✓ / ✗ / ○ with runId, context and winner
 - **No subtitles at all?** An opt-in ASR fallback reads the video's DASH audio stream (WBI-signed `playurl`, aid+cid bound), downloads it in 2 MiB Range chunks and posts it to Bilibili's own Bcut speech-recognition service — no login required, no third party, nothing fetched or uploaded until you click. Audio lives only in memory. Verified end to end anonymously on 2026-11-19: a 12m25s video (5.9 MB audio) produced 357 timestamped cues in ~7 s.
 - Every track is bound to the video context (`contextKey` = bvid:cid) and a trust level; only trusted, context-matching tracks can be shown or selected — **fail closed: no subtitle is better than a valid subtitle from the wrong video**
 - The unsigned legacy endpoint (`/x/player/v2`) is diagnostic-only: it has been reported (risk-control degradation) to return valid-looking subtitles belonging to a different video
+- Works **without logging in**: the danmaku-view payload carries the same subtitle block as the player API but skips the `need_login_subtitle` gate, so already-generated AI subtitles stay reachable (96 sampled videos → 58 anonymous `ai-zh` tracks, all fetchable). Tracks whose URL embeds the current aid+cid are verified; other parts of the same upload are dropped
 - Signed subtitle URLs are never cached; 403/404 triggers automatic metadata re-fetch
 - Player resource capture is reset on SPA navigation, and a captured URL is only used when it provably belongs to the current video (embeds the current cid, or the current aid on single-page videos)
 - Exports: copy plain text, copy timestamped text, TXT, SRT, JSON
@@ -272,6 +281,6 @@ Precise per-strategy diagnostics (✓ / ✗ / ○ with runId, context and winner
 
 **Why another extractor?** Other projects already cover multi-format export, batch download, CLI, Chrome extensions and AI-agent workflows (see the table above). This project targets one narrow goal: a single userscript that follows Bilibili's shifting subtitle endpoints automatically and tells you exactly why when it cannot. It is not affiliated with Bilibili; it only reads subtitles already offered to the current user.
 
-**Verification status:** 98 unit tests pass (`npm test`), including deterministic WBI signing vectors and a regression test for the valid-but-wrong unsigned legacy response; anonymous endpoint behavior verified from a dev environment on 2026-08-29. The v1.0.2 resolver trust model was additionally validated in a real browser against the previously reproduced cross-video subtitle case. ✅ The signed-WBI path has been validated in a real browser: it returned a subtitle track, fetched the subtitle body, and became the authoritative winner, with the trust model observed working as intended (unsigned legacy metadata ignored). ⚠️ Anonymous sessions and additional browser / userscript-manager combinations still require broader validation — see [docs/PROTOCOL.md](docs/PROTOCOL.md) for protocol evidence and open items.
+**Verification status:** 105 unit tests pass (`npm test`), including deterministic WBI signing vectors and a regression test for the valid-but-wrong unsigned legacy response; anonymous endpoint behavior verified from a dev environment on 2026-08-29. The v1.0.2 resolver trust model was additionally validated in a real browser against the previously reproduced cross-video subtitle case. ✅ The signed-WBI path has been validated in a real browser: it returned a subtitle track, fetched the subtitle body, and became the authoritative winner, with the trust model observed working as intended (unsigned legacy metadata ignored). ⚠️ Anonymous sessions and additional browser / userscript-manager combinations still require broader validation — see [docs/PROTOCOL.md](docs/PROTOCOL.md) for protocol evidence and open items.
 
 **Install:** [Greasy Fork](https://greasyfork.org/zh-CN/scripts/593554-bilibili-cc-ai-subtitle-extractor) (recommended, updates managed by Greasy Fork) or [GitHub Raw](https://raw.githubusercontent.com/ymt200120/bili-subtitle/main/bili-subtitle.user.js) (development, follows the repo metadata).

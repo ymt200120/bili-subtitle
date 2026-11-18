@@ -38,7 +38,8 @@
 
 - ✅ 匿名返回 `{"code":0,"data":{"subtitle":{"subtitles":[]}}}`
 - ✅ 匿名访问 AI 字幕视频时 `subtitles` 为 **空数组**（不报错）——
-  「列表为空」≠「视频没有字幕」，很可能是登录门控
+  「列表为空」≠「视频没有字幕」，多半是 `need_login_subtitle` 登录门控；
+  匿名可取的同源数据见 §2c（`dm/view`）
 - 📚 登录后返回 `subtitle.subtitles[]`，每项含 `id / lan / lan_doc / subtitle_url / ai_type / ai_status`
 - ⚠️ **非权威（non-authoritative）**：该接口无 WBI 签名。2026-08 有独立项目记录
   在风控降级时它可能返回 HTTP 200、`code = 0`、内容语法完全合法但**属于其他视频**
@@ -75,6 +76,36 @@
 - ⚠️ 请求头：沿用页面语义（GM 请求带 `Referer: https://www.bilibili.com/`，
   与浏览器原生行为一致）；有服务端项目称 WBI 接口不应带 Referer，与浏览器行为矛盾，
   待实测确认
+
+## 2c. 匿名字幕通道（Strategy A2，v1.2.0 起）
+
+### `GET https://api.bilibili.com/x/v2/dm/view?aid=<AID>&oid=<CID>&type=1`
+
+- ✅ 本机验证（2026-11-19，匿名）：`code 0`，`data.subtitle.subtitles[]` 与
+  `/x/player/v2` 同构（`id / id_str / lan / lan_doc / subtitle_url / type / ai_type / ai_status`）
+- ✅ 关键差异：播放器字幕列表受 `need_login_subtitle` 门控，未登录时
+  `/x/player/v2`、`/x/player/wbi/v2` 都返回空数组；`dm/view`（弹幕视图接口）同样
+  返回 `subtitle` 块，但**不做这个门控**
+- ✅ 覆盖度实测（2026-11-19，匿名，9 个分区榜单各取前 12 条，共 96 个视频 /
+  100 条轨道）：`ai-zh` 58 条、自动翻译（`ai-en` 27、`ai-ja` 3、`ai-es/ar/pt/th/id` 各 2）
+  40 条、人工 CC（`zh-Hans` / `zh-CN`）2 条；58 条 `ai-zh` 全部能下载正文
+- ✅ **归属可由 URL 校验**：`ai-zh` 的 `subtitle_url` 形如
+  `http://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/<aid><cid><hash>?auth_key=…`，
+  对象路径开头就是 `aid` 与 `cid` 的拼接。本项目的分类与处理：
+
+  | 分类 | 判据 | 处理 |
+  |---|---|---|
+  | `verified` | URL 同时内嵌当前 `aid` + `cid` | 采信，排序优先 |
+  | `foreign` | 内嵌当前 `aid`、但不含当前 `cid`（同投稿的其他分 P） | **丢弃**（防止串 P） |
+  | `query` | URL 无 id（自动翻译 `prod/<32 位 hash>`、CC `bfs/subtitle/<sha1>.json`） | 采信，诊断标注「仅查询绑定」 |
+
+- ⚠️ 该接口没有签名，属于「查询绑定」信任级别（`CURRENT_VIDEO_METADATA`，与 §3 同级）；
+  正文 URL 仍是短期签名地址，同样不缓存，403/404 触发重取
+- ⚠️ 未验证：风控降级时它是否也会返回其他视频的字幕。缓解手段是上表的
+  `verified` / `foreign` 规则——`ai-zh`（主轨道）可被 URL 校验，跨视频响应会表现为
+  `foreign` 校验失败而不是被静默采信
+- ⚠️ 96 个视频样本来自榜单（热门内容），长尾视频的命中率、`dm/view` 与播放器
+  可见性是否永远一致：未验证
 
 ## 3. 新版字幕 metadata（Strategy B，Protobuf）
 
@@ -146,6 +177,8 @@
   匿名完整链路）仍待系统验证
 - ⚠️ Firefox + Violentmonkey 的 `GM_xmlhttpRequest` `arraybuffer` 支持
   （Tampermonkey / Violentmonkey 均声称支持，未实测）
+- ✅ v1.2.0 起匿名字幕通道（§2c）已验证，96 个榜单视频样本；长尾命中率与
+  风控降级行为仍未验证
 - ⚠️ 番剧页（`/bangumi/play/`）、国际化站、移动端页面：v1.0.0 明确不支持
 - 本脚本不读取、不存储、不输出 Cookie；登录态由浏览器在请求时自动携带
 
@@ -237,6 +270,9 @@ UP 主未开启 CC / AI 字幕时，§2–§3 的字幕接口只会返回空列�
   真实 Chrome/Tampermonkey 环境验证该端点为二进制响应
 - [YukinoAsuna/bilibili-subtitle-extractor](https://github.com/YukinoAsuna/bilibili-subtitle-extractor)：
   播放器资源捕获（aid/cid 匹配）思路
+- [1494948/bilibili-ai-subtitle-forcer](https://github.com/1494948/bilibili-ai-subtitle-forcer)（MIT）：
+  `x/v2/dm/view` 匿名通道与 `view/conclusion/get` 服务端生成队列的线索；§2c 的
+  样本统计、`verified/foreign/query` 归属分级由本项目自行实测与实现
 - [SocialSisterYi/bcut-asr](https://github.com/SocialSisterYi/bcut-asr)（MIT）：
   必剪 `/x/bcut/rubick-interface` 的 create → 分片上传 → complete → task → result 流程与
   字段名（§8 的接口形状依据；本项目用 JS 重新实现，并补测了「匿名可用」与「http→https 升级」）

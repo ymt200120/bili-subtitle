@@ -30,6 +30,7 @@ export const SRC_FILES = [
   'src/asr/index.js',
   'src/resolvers/video-context.js',
   'src/resolvers/legacy.js',
+  'src/resolvers/dm-view.js',
   'src/resolvers/web-view.js',
   'src/resolvers/signed-wbi.js',
   'src/resolvers/player-resource.js',

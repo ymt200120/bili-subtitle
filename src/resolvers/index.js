@@ -3,8 +3,10 @@
  *
  * Production chain, in order (first trusted success wins):
  *   1. signed-wbi      /x/player/wbi/v2      (WBI-signed metadata)
- *   2. web-view        /x/v2/subtitle/web/view (protobuf, aid+cid in query)
- *   3. player-resource captured player requests (epoch + ownership proof)
+ *   2. dm-view         /x/v2/dm/view         (anonymous channel; AI subtitle
+ *                                             URLs embed aid+cid, verified)
+ *   3. web-view        /x/v2/subtitle/web/view (protobuf, aid+cid in query)
+ *   4. player-resource captured player requests (epoch + ownership proof)
  *
  * The unsigned /x/player/v2 (legacy-json) is NOT part of the chain: it has
  * been reported to return HTTP 200 with valid-looking subtitles belonging
@@ -26,6 +28,7 @@ const EXPIRY_STATUS = [403, 404];
 
 const TRUST_BY_RESOLVER = {
   'signed-wbi': () => BS.trust.SIGNED,
+  'dm-view': () => BS.trust.CURRENT_VIDEO,
   'web-view': () => BS.trust.CURRENT_VIDEO,
   'player-resource': () => BS.trust.CURRENT_PLAYER,
   legacy: () => BS.trust.UNTRUSTED_LEGACY
@@ -215,7 +218,10 @@ function buildHints(diagSteps, probe) {
     );
   }
   if (okNote('signed-wbi') && okNote('web-view')) {
-    notes.push('两个可信接口都返回空轨道：AI 字幕通常需要登录 B 站后才能获取。');
+    notes.push(
+      '所有可信接口都返回空轨道：这个视频确实没有 UP 主开启的 CC / AI 字幕（不是登录问题）。'
+    );
+    notes.push('可以用面板上的「语音识别生成字幕」从音轨现场生成一份。');
   }
   notes.push(
     '兜底提示：在播放器中打开「字幕 / CC」并选择 AI 字幕，让播放器实际加载一次，再点「重新提取」。'
@@ -261,6 +267,7 @@ async function extract(env) {
 
   const strategies = [
     BS.resolvers.signedWbi,
+    BS.resolvers.dmView,
     BS.resolvers.webView,
     BS.resolvers.playerResource
   ];
@@ -284,7 +291,11 @@ async function extract(env) {
 
   if (!doc && retryable) {
     env.onUpdate && env.onUpdate(`字幕地址已过期，正在重新获取…（run #${runId}）`);
-    for (const strategy of [BS.resolvers.signedWbi, BS.resolvers.webView]) {
+    for (const strategy of [
+      BS.resolvers.signedWbi,
+      BS.resolvers.dmView,
+      BS.resolvers.webView
+    ]) {
       const r = await runStrategy(strategy, ctx, env, diag, tried);
       merged = BS.mergeTracks([merged, r.tracks]);
       if (r.doc) {
