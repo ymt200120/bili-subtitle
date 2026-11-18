@@ -34,7 +34,8 @@ function contextFromVideoData(videoData, page) {
     cid,
     page: Number((selected && selected.page) || page || 1),
     pageCount: pages.length || 1,
-    title: multi ? `${base} P${selected.page || page} ${selected.part}` : base
+    title: multi ? `${base} P${selected.page || page} ${selected.part}` : base,
+    duration: Number((selected && selected.duration) || videoData.duration) || 0
   });
 }
 

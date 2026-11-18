@@ -26,7 +26,10 @@ const FILES = [
   'src/core/wbi.js',
   'src/core/protobuf.js',
   'src/core/net.js',
+  'src/core/audio.js',
   'src/core/spa.js',
+  'src/asr/bcut.js',
+  'src/asr/index.js',
   'src/resolvers/video-context.js',
   'src/resolvers/legacy.js',
   'src/resolvers/web-view.js',
@@ -47,8 +50,8 @@ const header = `// ==UserScript==
 // @name:zh-CN   Bilibili CC / AI 字幕提取器
 // @namespace    https://github.com/ymt200120
 // @version      ${version}
-// @description  Resilient Bilibili CC & AI subtitle extraction with automatic fallback strategies and precise diagnostics.
-// @description:zh-CN  零配置提取 Bilibili CC / AI 字幕，自动尝试多条获取路径，失败时提供精确诊断。
+// @description  Resilient Bilibili CC & AI subtitle extraction with automatic fallback strategies, precise diagnostics, and an audio-ASR fallback for videos whose uploader never enabled subtitles.
+// @description:zh-CN  零配置提取 Bilibili CC / AI 字幕，自动尝试多条获取路径；UP 主未开启字幕的视频可用语音识别生成。失败时提供精确诊断。
 // @author       ymt200120
 // @homepageURL  https://github.com/ymt200120/bili-subtitle
 // @supportURL   https://github.com/ymt200120/bili-subtitle/issues
@@ -63,6 +66,10 @@ const header = `// ==UserScript==
 // @connect      aisubtitle.hdslb.com
 // @connect      subtitle.bilibili.com
 // @connect      hdslb.com
+// @connect      bilivideo.com
+// @connect      member.bilibili.com
+// @connect      biliapi.net
+// @connect      bilibili.co
 // @run-at       document-end
 // @license      MIT
 // ==/UserScript==

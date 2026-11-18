@@ -13,6 +13,10 @@
  *   the query (the endpoint binds the request to the video).
  * CURRENT_PLAYER_RESOURCE: URL captured from the player's own request and
  *   proven to embed the current cid/aid (see player-resource.ownsUrl).
+ * ASR_TRANSCRIPT: cue text produced by speech recognition on the audio
+ *   stream of THIS video (audio resolved through a WBI-signed playurl
+ *   request bound to the current aid+cid), so it is bound to the video by
+ *   construction; it carries the cues inline instead of a subtitle URL.
  * UNTRUSTED_LEGACY: unsigned /x/player/v2 — observed in the wild (risk
  *   control degradation) returning HTTP 200 with valid-looking subtitles
  *   that belong to a DIFFERENT video. Diagnostic only; never committable.
@@ -21,6 +25,7 @@ const TRUST = {
   SIGNED: 'SIGNED_METADATA',
   CURRENT_VIDEO: 'CURRENT_VIDEO_METADATA',
   CURRENT_PLAYER: 'CURRENT_PLAYER_RESOURCE',
+  ASR: 'ASR_TRANSCRIPT',
   UNTRUSTED_LEGACY: 'UNTRUSTED_LEGACY'
 };
 
@@ -28,11 +33,12 @@ function isWinnableTrust(trust) {
   return (
     trust === TRUST.SIGNED ||
     trust === TRUST.CURRENT_VIDEO ||
-    trust === TRUST.CURRENT_PLAYER
+    trust === TRUST.CURRENT_PLAYER ||
+    trust === TRUST.ASR
   );
 }
 
-function makeVideoContext({ bvid, aid, cid, page, pageCount, title }) {
+function makeVideoContext({ bvid, aid, cid, page, pageCount, title, duration }) {
   const bvidStr = String(bvid || '');
   const cidNum = Number(cid) || 0;
   return {
@@ -42,6 +48,7 @@ function makeVideoContext({ bvid, aid, cid, page, pageCount, title }) {
     page: Number(page) || 1,
     pageCount: Number(pageCount) || 1,
     title: String(title || ''),
+    duration: Math.max(0, Number(duration) || 0),
     // Stable identity of (video, part). Every track / result / document
     // must carry this to be committable for this context.
     contextKey: `${bvidStr}:${cidNum}`

@@ -52,9 +52,13 @@ function now() {
  * video context. UNTRUSTED_LEGACY tracks fail this check by design.
  */
 function isSelectableTrack(track, ctx) {
+  const hasBody = Boolean(
+    track &&
+      (track.url || (Array.isArray(track.cues) && track.cues.length))
+  );
   return Boolean(
     track &&
-      track.url &&
+      hasBody &&
       ctx &&
       BS.isWinnableTrust(track.trust) &&
       track.contextKey === ctx.contextKey

@@ -5,6 +5,7 @@
 登录态行为无法在本环境验证，已明确标注。
 2026-08-30 起补充了**真实浏览器（登录态）验证**结果，与「本机验证」分开标注
 （见 §2b 与 §7）；单一案例验证不代表全场景验证。
+2026-11-19 新增 §8「语音识别兜底」，其中接口行为均为**匿名本机验证**（无 Cookie）。
 
 背景：社区接口文档仓库 [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect) 已于 2026-01 因收到 B 站律师函而永久关停。
 因此本文只记录本项目实际依赖的最小行为集合，而不是完整的接口文档。
@@ -148,6 +149,86 @@
 - ⚠️ 番剧页（`/bangumi/play/`）、国际化站、移动端页面：v1.0.0 明确不支持
 - 本脚本不读取、不存储、不输出 Cookie；登录态由浏览器在请求时自动携带
 
+## 8. 语音识别兜底（ASR，v1.1.0）
+
+UP 主未开启 CC / AI 字幕时，§2–§3 的字幕接口只会返回空列表；但视频音轨仍然可取。
+本项目因此新增一条与字幕无关的兜底链路：**音轨 → 必剪语音识别 → cues**。
+整条链路**不需要登录、不读 Cookie、不接第三方服务**。
+
+### 8.1 音轨：`GET /x/player/wbi/playurl`
+
+- ✅ 本机验证（2026-11-19，匿名）：WBI 签名参数
+  `avid` / `cid` / `fnval=4048` / `fnver=0` / `fourk=1` 返回 `data.dash.audio[]`，
+  每项含 `id` / `baseUrl` / `bandwidth` / `mimeType` / `codecs`
+- ✅ 实测音频 id：`30216`（66 kbps）/ `30232`（70 kbps）/ `30280`（86 kbps）；
+  本项目固定优先 `30216`（语音识别足够、上传量最小），缺省时选最小带宽
+- ✅ CDN 支持 `Range`：返回 `206` 与 `Content-Range: bytes 0-0/6156764`，
+  因此采用 2 MiB 分片下载：真实进度、单分片失败只重试该片
+- ⚠️ 匿名可取音轨是否覆盖所有视频（付费/互动/番剧/需要登录的清晰度）：未验证；
+  取不到独立音轨时会给出明确提示而不是静默失败
+- 音轨 URL 同样是短期签名 CDN 链接，**不缓存**
+
+### 8.2 必剪（Bcut）语音识别
+
+`https://member.bilibili.com/x/bcut/rubick-interface`，`model_id = 7`（中文 / 中英混合）：
+
+| 步骤 | 请求 | 关键字段 |
+|---|---|---|
+| 申请上传 | `POST /resource/create`（form） | `type=2`、`name`、`size`、`resource_file_type=m4a`、`model_id=7` → `resource_id` / `in_boss_key` / `upload_id` / `upload_urls[]` / `per_size` |
+| 上传分片 | `PUT upload_urls[i]` | 原始音频字节；响应头 `ETag` |
+| 提交上传 | `POST /resource/create/complete`（form） | `in_boss_key`、`resource_id`、`etags`（逗号分隔）、`upload_id`、`model_id=7` → `download_url` |
+| 创建任务 | `POST /task`（JSON） | `{"resource": download_url, "model_id": "7"}` → `task_id` |
+| 查询结果 | `GET /task/result?model_id=7&task_id=…` | `state`：0 未开始 / 1 运行中 / 3 失败 / 4 完成；完成时 `result` 是 JSON 字符串 |
+
+结果 JSON（`start_time` / `end_time` 单位为**毫秒**，与字幕 JSON 的秒不同）：
+
+```json
+{
+  "utterances": [
+    {
+      "start_time": 0,
+      "end_time": 1100,
+      "transcript": "…",
+      "words": [{ "label": "中", "start_time": 0, "end_time": 120 }]
+    }
+  ],
+  "version": "1.2.0"
+}
+```
+
+- ✅ 本机验证（2026-11-19，**匿名、无 Cookie、无 CSRF 参数**）：
+  `create` / `complete` / `task` / `result` 全部返回 `code 0`
+- ✅ 预签名上传 URL 给的是 `http://…biliapi.net`；改写为 `https://` 后 PUT 仍返回
+  `200` + `ETag`（SigV4 只签 `host`，不含 scheme），因此本项目始终升级为 https
+- ✅ 端到端实测：12 分 25 秒视频（音频 5.9 MB、2 个分片）→ `state=4`、
+  357 条 utterances、约 7 秒（解析 + 下载 + 上传 + 识别）
+- ✅ 上传的音频就是 DASH 的 `.m4s`（fragmented MP4）字节，**未转码**；
+  以 `resource_file_type=m4a` 提交即可被识别
+- ⚠️ **风控**：同一地址连续约 4 次完整流程后，`/task/result` 返回 `HTTP 412`，
+  先是人机验证 HTML（响应头带 `x-sec-request-id`、`server: openresty`），
+  之后带 `Origin` / `Sec-Fetch-*` 时变成 JSON `{"code":-412,"message":"request was banned"}`。
+  同一时刻 `/resource/create`、`/task` 仍返回 `code 0`（`api.bilibili.com` 也正常），
+  说明是**单端点、按地址/频次**的风控，而不是接口变更或全局封禁。
+  本项目因此：显式点击才运行、轮询间隔从 1.5 s 逐步放慢到 6 s、总时长上限 10 分钟，
+  并把 412 翻译成「先完成人机验证再重试」的提示。浏览器常态（携带 `buvid3` / `_uuid`
+  等 Cookie，可能已登录）下的阈值未验证
+- ⚠️ 服务端限流、并发上限、单任务时长上限、登录态是否表现不同：未验证
+- ⚠️ 必剪属于 B 站内部业务接口，可能随时变化；失败时面板显示具体步骤与 code
+  （`asr-bcut-create` / `asr-bcut-upload` / `asr-bcut-complete` / `asr-bcut-task` /
+  `asr-bcut-result`）
+
+### 8.3 归属与信任
+
+- 音轨来自 **WBI 签名且 aid+cid 绑定** 的 `playurl`，所以「这段音频属于这个视频」
+  由请求构造保证，而不是从响应内容推断（与 §2b 的思路一致）
+- 生成轨道的 trust 为 `ASR_TRANSCRIPT`：可采信、参与 `isSelectableTrack`，
+  但必须带 `contextKey = bvid:cid`；轨道自带 cues（没有 `subtitle_url`），
+  与下载型轨道并列进入预览 / 导出 / 诊断
+- 未签名 legacy 接口的 `UNTRUSTED_LEGACY` 规则不变：ASR 的存在不会让未采信来源
+  变得可采信
+- ASR 文本是**生成内容**，可能与视频原话有出入；面板与导出 JSON 都会标注
+  `source: "asr"`，与 B 站官方字幕区分
+
 ## Prior art 依据清单
 
 - [ccBilly-aipm/bilibili-ai-subtitle](https://github.com/ccBilly-aipm/bilibili-ai-subtitle)（MIT）：
@@ -156,5 +237,8 @@
   真实 Chrome/Tampermonkey 环境验证该端点为二进制响应
 - [YukinoAsuna/bilibili-subtitle-extractor](https://github.com/YukinoAsuna/bilibili-subtitle-extractor)：
   播放器资源捕获（aid/cid 匹配）思路
+- [SocialSisterYi/bcut-asr](https://github.com/SocialSisterYi/bcut-asr)（MIT）：
+  必剪 `/x/bcut/rubick-interface` 的 create → 分片上传 → complete → task → result 流程与
+  字段名（§8 的接口形状依据；本项目用 JS 重新实现，并补测了「匿名可用」与「http→https 升级」）
 - [SocialSisterYi/bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)（已关停）：
   历史社区文档，未直接引用

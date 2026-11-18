@@ -1,6 +1,6 @@
 {
   "name": "bili-subtitle",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "private": true,
   "description": "Resilient Bilibili CC & AI subtitle userscript",
   "license": "MIT",
@@ -8,6 +8,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:check": "node scripts/build.mjs --check",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "asr:live": "node scripts/asr-live.mjs"
   }
 }

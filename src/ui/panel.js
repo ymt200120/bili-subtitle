@@ -42,6 +42,15 @@ const STYLE = `
 #bs-preview { margin: 0 12px 8px; padding: 8px 10px; background: #f7f8fa;
   border-radius: 8px; max-height: 180px; overflow: auto; white-space: pre-wrap;
   font: 12px/1.6 ui-monospace, Menlo, Consolas, monospace; }
+#bs-asr { margin: 0 12px 8px; padding: 9px 10px; border: 1px dashed #fb7299;
+  border-radius: 8px; background: #fff7f9; }
+#bs-asr-note { color: #8a4b58; font-size: 12px; white-space: pre-wrap; }
+#bs-asr-progress { margin-top: 6px; color: #b2303f; font-size: 12px; }
+#bs-asr-bar { height: 4px; border-radius: 999px; background: #f3d6de;
+  margin-top: 6px; overflow: hidden; }
+#bs-asr-fill { height: 100%; width: 0; background: #fb7299;
+  transition: width .2s linear; }
+#bs-asr-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 #bs-diag-box { margin: 0 12px 10px; }
 #bs-diag-box summary { cursor: pointer; color: #888; font-size: 12px; }
 #bs-diag { margin: 6px 0 0; padding: 8px 10px; background: #f7f8fa;
@@ -67,6 +76,15 @@ const TEMPLATE = `
     <select id="bs-tracks" hidden></select>
   </div>
   <div id="bs-count" hidden></div>
+  <div id="bs-asr" hidden>
+    <div id="bs-asr-note"></div>
+    <div id="bs-asr-progress" hidden></div>
+    <div id="bs-asr-bar" hidden><div id="bs-asr-fill"></div></div>
+    <div id="bs-asr-actions">
+      <button id="bs-asr-run">语音识别生成字幕</button>
+      <button id="bs-asr-cancel" hidden>取消</button>
+    </div>
+  </div>
   <div id="bs-actions" hidden>
     <button data-act="copy">复制文本</button>
     <button data-act="copy-ts">带时间轴</button>
@@ -108,6 +126,13 @@ function createPanel(handlers) {
   const count = $('bs-count');
   const actions = $('bs-actions');
   const preview = $('bs-preview');
+  const asrBox = $('bs-asr');
+  const asrNote = $('bs-asr-note');
+  const asrProgress = $('bs-asr-progress');
+  const asrBar = $('bs-asr-bar');
+  const asrFill = $('bs-asr-fill');
+  const asrRun = $('bs-asr-run');
+  const asrCancel = $('bs-asr-cancel');
   const diagBox = $('bs-diag-box');
   const diagPre = $('bs-diag');
 
@@ -132,6 +157,12 @@ function createPanel(handlers) {
 
   $('bs-close').addEventListener('click', close);
   extractBtn.addEventListener('click', () => handlers.onExtract());
+  asrRun.addEventListener('click', () => {
+    if (handlers.onAsr) handlers.onAsr();
+  });
+  asrCancel.addEventListener('click', () => {
+    if (handlers.onAsrCancel) handlers.onAsrCancel();
+  });
 
   tracksSel.addEventListener('change', () => {
     handlers.onTrackChange(tracksSel.value);
@@ -182,7 +213,9 @@ function createPanel(handlers) {
         opt.textContent =
           t.source === 'player-resource'
             ? `${label}（播放器捕获）`
-            : label;
+            : t.source === 'asr'
+              ? `${label}（语音识别）`
+              : label;
         if (trackKeyOf(t) === selectedKey) opt.selected = true;
         tracksSel.appendChild(opt);
       }
@@ -194,7 +227,8 @@ function createPanel(handlers) {
     },
 
     setCues(cues, track) {
-      count.textContent = `${cues.length} 条 · ${track.lanDoc || track.lan || '字幕'} · 来源 ${track.source}`;
+      const source = track.source === 'asr' ? '语音识别' : track.source;
+      count.textContent = `${cues.length} 条 · ${track.lanDoc || track.lan || '字幕'} · 来源 ${source}`;
       count.hidden = false;
       actions.hidden = false;
       const head = cues
@@ -205,6 +239,63 @@ function createPanel(handlers) {
         cues.length > 15 ? head + '\n…' : head;
       preview.hidden = false;
       msg.hidden = true;
+    },
+
+    /*
+     * ASR offer / progress. Shown when the trusted chain found no subtitle
+     * at all; the audio is downloaded and uploaded only after a click, so
+     * the note spells out what that click does.
+     */
+    showAsr(durationSeconds) {
+      const minutes = Math.max(1, Math.round((Number(durationSeconds) || 0) / 60));
+      const size = ((Number(durationSeconds) || 0) * 8.25 / 1024).toFixed(1);
+      asrNote.textContent =
+        `此视频没有可用字幕（UP 主未开启 CC / AI 字幕）。\n` +
+        `可用语音识别从音频生成：约 ${minutes} 分钟音频（约 ${size} MB），` +
+        `上传至 B 站「必剪」语音识别接口，不经过第三方服务。`;
+      asrBox.hidden = false;
+      asrProgress.hidden = true;
+      asrBar.hidden = true;
+      asrFill.style.width = '0%';
+      asrRun.hidden = false;
+      asrRun.disabled = false;
+      asrRun.textContent = '语音识别生成字幕';
+      asrCancel.hidden = true;
+    },
+
+    hideAsr() {
+      asrBox.hidden = true;
+    },
+
+    setAsrBusy(busy) {
+      asrRun.disabled = !!busy;
+      asrRun.textContent = busy ? '生成中…' : '语音识别生成字幕';
+      asrCancel.hidden = !busy;
+      asrRun.hidden = false;
+    },
+
+    setAsrProgress({ text, percent } = {}) {
+      asrBox.hidden = false;
+      if (text) {
+        asrProgress.textContent = text;
+        asrProgress.hidden = false;
+      }
+      if (typeof percent === 'number') {
+        asrBar.hidden = false;
+        asrFill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+      }
+    },
+
+    resetAsr() {
+      asrBox.hidden = true;
+      asrProgress.hidden = true;
+      asrProgress.textContent = '';
+      asrBar.hidden = true;
+      asrFill.style.width = '0%';
+      asrRun.disabled = false;
+      asrRun.hidden = false;
+      asrRun.textContent = '语音识别生成字幕';
+      asrCancel.hidden = true;
     },
 
     setDiag(lines) {
@@ -222,6 +313,7 @@ function createPanel(handlers) {
       tracksSel.hidden = true;
       diagPre.textContent = '';
       diagBox.hidden = true;
+      api.resetAsr();
     },
 
     /*

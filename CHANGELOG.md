@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-11-19
+
+### Added
+
+- **ASR fallback for videos without subtitles.** When the uploader never
+  enabled CC / AI subtitles, the panel now offers "语音识别生成字幕": the
+  script resolves the video's DASH audio stream through a WBI-signed
+  `playurl` request (aid+cid bound), downloads it in 2 MiB Range chunks with
+  progress, uploads it to Bilibili's own Bcut (必剪) speech-recognition
+  service and converts the millisecond-timestamped utterances into ordinary
+  cues, so preview / copy / TXT / SRT / JSON work unchanged.
+  - opt-in only: nothing is downloaded or uploaded until the button is
+    clicked; audio lives in memory (ArrayBuffer) and is never written to disk
+  - no login, no cookies, no third-party service (verified anonymously on
+    2026-11-19: 12m25s video, 5.9 MB audio, ~7 s end to end, 357 cues)
+  - new trust level `ASR_TRANSCRIPT` for generated tracks; ASR tracks carry
+    their cues inline and are still bound to `contextKey` (bvid:cid)
+  - new diagnostics block "语音识别（必剪）" with audio stream / download /
+    upload / task steps, plus cancellation
+  - `@connect` entries for `bilivideo.com`, `member.bilibili.com`,
+    `biliapi.net`, `bilibili.co`
+  - risk-control handling: HTTP 412 from Bcut is translated into an
+    actionable "complete the captcha first / retry later" message, polling
+    backs off from 1.5 s up to 6 s, and the whole task is capped at 10 min
+    (observed: ~4 anonymous runs from one address trigger the 412 captcha on
+    `/task/result` only; `/resource/create` and `/task` keep working)
+- Video context now carries `duration` (used for the ASR size estimate).
+
+### Changed
+
+- `BS.net` gained bounded POST (form / JSON) and binary PUT helpers and
+  returns response headers; existing GET/JSON/Binary callers unchanged.
+
 ## [1.0.4] - 2026-09-04
 
 ### Fixed
