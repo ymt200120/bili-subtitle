@@ -1,4 +1,4 @@
 const BS = {};
 
-BS.VERSION = '1.2.0';
+BS.VERSION = '1.2.1';
 BS.TAG = '[bili-subtitle]';

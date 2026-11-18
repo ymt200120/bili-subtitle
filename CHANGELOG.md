@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-11-19
+
+### Fixed
+
+- **The dm-view ownership check is exact now.** `ownership()` searched the
+  whole track URL for the decimal strings `aid`/`cid`, so a foreign cid that
+  merely shared the current cid's prefix (`400656` vs `40065631429`) was
+  accepted as `verified`, and a response belonging to a completely different
+  video (neither id present) fell into `query` and was silently kept. The
+  `prod/<aid><cid><digest>` path is now split at the known digest length and
+  compared for exact equality; a well-formed prod path carrying another id
+  pair is `foreign` and dropped. Non-prod URLs (CC files) still use
+  digit-boundary matching so a short id cannot match inside a longer number.
+- corrected the protocol note that claimed a cross-video response would always
+  surface as `foreign`: only id-bearing `prod/` paths can be proven foreign;
+  hash-only translation/CC files stay query-bound.
+- regression tests: prefix collision (both directions), cross-video prod path,
+  digest-length variants, and non-prod boundary matching.
+
 ## [1.2.0] - 2026-11-19
 
 ### Added

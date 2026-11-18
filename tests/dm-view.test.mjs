@@ -28,9 +28,10 @@ const STATE = {
 
 const CONTEXT = { aid: AID, cid: CID, contextKey: `${BVID}:${CID}` };
 
-const AI_URL = `https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/${AID}${CID}4b6f8037?auth_key=K`;
+const HASH = '4b6f803738d47df1bdaec174195d9492';
+const AI_URL = `https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/${AID}${CID}${HASH}?auth_key=K`;
 const HASHED_URL = 'https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/956c3d6a69d54a6e187cf6d6730c4f37';
-const FOREIGN_URL = `https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/${AID}400999111114b6f8037?auth_key=K`;
+const FOREIGN_URL = `https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/${AID}400999111114${HASH}?auth_key=K`;
 
 const CUES = (n) => ({
   body: Array.from({ length: n }, (_, i) => ({ from: i, to: i + 1, content: `c${i}` }))
@@ -57,6 +58,47 @@ test('ownership: verified / foreign / query', () => {
   assert.equal(BS.resolvers.dmView.ownership(FOREIGN_URL, CONTEXT), 'foreign');
   assert.equal(BS.resolvers.dmView.ownership(HASHED_URL, CONTEXT), 'query');
   assert.equal(BS.resolvers.dmView.ownership('', CONTEXT), 'query');
+});
+
+test('ownership: ids must match exactly, not as a decimal prefix', () => {
+  const own = (body) => BS.resolvers.dmView.ownership(
+    `https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/${body}?auth_key=K`,
+    CONTEXT
+  );
+
+  // A foreign cid that extends the current cid: the old substring check said
+  // "verified" because the URL contained 40065631429 as a prefix.
+  assert.equal(own(`${AID}${CID}0${HASH}`), 'foreign');
+  // A foreign cid the current cid extends: the digest happens to continue the
+  // decimal run (starts with a digit), so the split must use the digest length.
+  assert.equal(own(`${AID}4006563142${'9' + HASH.slice(1)}`), 'foreign');
+  // A completely different video's prod path used to fall into "query" and be
+  // kept; it now carries someone else's ids and is rejected.
+  assert.equal(
+    own(`11762398764181826037066889${HASH}`),
+    'foreign',
+    'cross-video response is dropped'
+  );
+  // The exact pair is still verified, even with a non-md5 digest length.
+  assert.equal(own(`${AID}${CID}${'ab'.repeat(20)}`), 'verified');
+});
+
+test('ownership: non-prod URLs need standalone decimal runs', () => {
+  const own = (url) => BS.resolvers.dmView.ownership(url, CONTEXT);
+  assert.equal(
+    own(`https://subtitle.bilibili.com/bfs/subtitle/${CID}.json`),
+    'query',
+    'a cid alone is query-bound'
+  );
+  assert.equal(
+    own(`https://subtitle.bilibili.com/bfs/subtitle/x.json?aid=${AID}&cid=${CID}`),
+    'verified'
+  );
+  assert.equal(
+    own(`https://subtitle.bilibili.com/bfs/subtitle/${AID}9x.json`),
+    'query',
+    'a digit boundary prevents an id from matching inside a longer number'
+  );
 });
 
 test('discover maps tracks, normalizes urls and rejects other parts', async () => {
@@ -104,7 +146,7 @@ test('discover maps tracks, normalizes urls and rejects other parts', async () =
   assert.equal(zh.verifiedBy, 'verified');
   assert.equal(zh.aiStatus, 2);
   assert.equal(en.verifiedBy, 'query');
-  assert.match(r.note, /2 条轨道 · 1 条内嵌 aid\+cid 可校验 · 1 条属于其他分 P，已丢弃/);
+  assert.match(r.note, /2 条轨道 · 1 条内嵌 aid\+cid 可校验 · 1 条 URL 归属不符（其他分 P \/ 其他视频），已丢弃/);
 });
 
 test('discover reports an empty list without failing', async () => {

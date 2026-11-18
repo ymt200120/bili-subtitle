@@ -87,7 +87,7 @@ flowchart TD
 要点：
 
 - **字幕归属是 correctness 问题**：v1.0.2 引入 trust model——`SIGNED_METADATA`（WBI 签名）> `CURRENT_VIDEO_METADATA`（请求显式绑定 aid+cid）> `CURRENT_PLAYER_RESOURCE`（捕获 URL 已证明内嵌当前 cid/aid）；每条轨道、每个结果都绑定 `contextKey`（bvid:cid），面板与轨道选择只接受「可信 + 归属匹配」的内容
-- **匿名也能拿到 AI 字幕**（v1.2.0）：播放器的字幕列表受 `need_login_subtitle` 门控，未登录时 `/x/player/wbi/v2`、`/x/player/v2` 一律空数组；但弹幕视图接口 `/x/v2/dm/view` 带同样的 `subtitle` 块且不做该门控。实测 96 个榜单视频里 58 条 `ai-zh` 轨道可匿名获取并下载正文，且 `subtitle_url` 形如 `prod/<aid><cid><hash>`，**归属可由 URL 直接校验**；内嵌了本 aid 但不含本 cid（其他分 P）的轨道会被丢弃
+- **匿名也能拿到 AI 字幕**（v1.2.0）：播放器的字幕列表受 `need_login_subtitle` 门控，未登录时 `/x/player/wbi/v2`、`/x/player/v2` 一律空数组；但弹幕视图接口 `/x/v2/dm/view` 带同样的 `subtitle` 块且不做该门控。实测 96 个榜单视频里 58 条 `ai-zh` 轨道可匿名获取并下载正文，且 `subtitle_url` 形如 `prod/<aid><cid><hash>`，**归属由 URL 精确校验**：按摘要长度切出数字前缀，必须与 `aid+cid` 完全相等（v1.2.1 修正了 `includes()` 子串前缀的误判）；其他分 P 或其他视频的轨道会被丢弃，无 id 的自动翻译 / CC 文件按「查询绑定」保留
 - **未签名旧版接口 `/x/player/v2` 降级为诊断探针**：有独立项目记录它在风控降级时返回 HTTP 200、内容合法但**属于其他视频**的字幕；它的结果只用于对比诊断与登录提示，永不作为字幕来源（详见 [docs/PROTOCOL.md](docs/PROTOCOL.md) §2/§2b）
 - **fail-closed 原则**：宁可提示「无法可靠确认字幕归属」，也不显示可能来自其他视频的字幕
 - 签名字幕 URL 短期有效（403/404）：脚本**不缓存**，自动重取 metadata
@@ -167,7 +167,7 @@ B 站「必剪」语音识别：resource/create → 分片 PUT → complete → 
 
 | 层级 | 状态 |
 |---|---|
-| 单元测试（105 项：URL/字幕解析/SRT/Protobuf/策略链/WBI 签名向量/归属校验/日志脱敏/dm-view/ASR 全流程） | ✅ `npm test` 全部通过 |
+| 单元测试（107 项：URL/字幕解析/SRT/Protobuf/策略链/WBI 签名向量/归属校验/日志脱敏/dm-view/ASR 全流程） | ✅ `npm test` 全部通过 |
 | WBI 签名算法（mixin_key 重排、w_rid 计算） | ✅ 与社区参考的确定性测试向量一致 |
 | **跨视频字幕 bug（此前真实复现场景）** | ✅ **v1.0.2 已在真实浏览器验证：不再复现**（真实浏览器验证，2026-08-30） |
 | 匿名接口行为（view API、player/v2 空列表、web/view 空protobuf） | ✅ 本机验证 2026-08-29，见 [docs/PROTOCOL.md](docs/PROTOCOL.md) |
@@ -281,6 +281,6 @@ Precise per-strategy diagnostics (✓ / ✗ / ○ with runId, context and winner
 
 **Why another extractor?** Other projects already cover multi-format export, batch download, CLI, Chrome extensions and AI-agent workflows (see the table above). This project targets one narrow goal: a single userscript that follows Bilibili's shifting subtitle endpoints automatically and tells you exactly why when it cannot. It is not affiliated with Bilibili; it only reads subtitles already offered to the current user.
 
-**Verification status:** 105 unit tests pass (`npm test`), including deterministic WBI signing vectors and a regression test for the valid-but-wrong unsigned legacy response; anonymous endpoint behavior verified from a dev environment on 2026-08-29. The v1.0.2 resolver trust model was additionally validated in a real browser against the previously reproduced cross-video subtitle case. ✅ The signed-WBI path has been validated in a real browser: it returned a subtitle track, fetched the subtitle body, and became the authoritative winner, with the trust model observed working as intended (unsigned legacy metadata ignored). ⚠️ Anonymous sessions and additional browser / userscript-manager combinations still require broader validation — see [docs/PROTOCOL.md](docs/PROTOCOL.md) for protocol evidence and open items.
+**Verification status:** 107 unit tests pass (`npm test`), including deterministic WBI signing vectors and a regression test for the valid-but-wrong unsigned legacy response; anonymous endpoint behavior verified from a dev environment on 2026-08-29. The v1.0.2 resolver trust model was additionally validated in a real browser against the previously reproduced cross-video subtitle case. ✅ The signed-WBI path has been validated in a real browser: it returned a subtitle track, fetched the subtitle body, and became the authoritative winner, with the trust model observed working as intended (unsigned legacy metadata ignored). ⚠️ Anonymous sessions and additional browser / userscript-manager combinations still require broader validation — see [docs/PROTOCOL.md](docs/PROTOCOL.md) for protocol evidence and open items.
 
 **Install:** [Greasy Fork](https://greasyfork.org/zh-CN/scripts/593554-bilibili-cc-ai-subtitle-extractor) (recommended, updates managed by Greasy Fork) or [GitHub Raw](https://raw.githubusercontent.com/ymt200120/bili-subtitle/main/bili-subtitle.user.js) (development, follows the repo metadata).
