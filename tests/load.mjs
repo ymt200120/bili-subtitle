@@ -26,6 +26,7 @@ export const SRC_FILES = [
   'src/core/net.js',
   'src/core/audio.js',
   'src/core/spa.js',
+  'src/asr/state.js',
   'src/asr/bcut.js',
   'src/asr/index.js',
   'src/resolvers/video-context.js',

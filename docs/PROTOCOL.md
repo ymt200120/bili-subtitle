@@ -249,7 +249,7 @@ UP 主未开启 CC / AI 字幕时，§2–§3 的字幕接口只会返回空列�
   同一时刻 `/resource/create`、`/task` 仍返回 `code 0`（`api.bilibili.com` 也正常），
   说明是**单端点、按地址/频次**的风控，而不是接口变更或全局封禁。
   本项目因此：显式点击才运行、轮询间隔从 1.5 s 逐步放慢到 6 s、总时长上限 10 分钟，
-  并把 412 翻译成「先完成人机验证再重试」的提示。浏览器常态（携带 `buvid3` / `_uuid`
+  并加入任务续查 / 结果缓存 / 冷却保护（详见 §8.4）。浏览器常态（携带 `buvid3` / `_uuid`
   等 Cookie，可能已登录）下的阈值未验证
 - ⚠️ 服务端限流、并发上限、单任务时长上限、登录态是否表现不同：未验证
 - ⚠️ 必剪属于 B 站内部业务接口，可能随时变化；失败时面板显示具体步骤与 code
@@ -267,6 +267,67 @@ UP 主未开启 CC / AI 字幕时，§2–§3 的字幕接口只会返回空列�
   变得可采信
 - ASR 文本是**生成内容**，可能与视频原话有出入；面板与导出 JSON 都会标注
   `source: "asr"`，与 B 站官方字幕区分
+
+
+### 8.4 `/task/result` 的 412 风控（2026-11-18 / 11-20 实测）
+
+必剪其余端点稳定，只有结果查询会被拦：
+
+| 观测项 | 结果 |
+|---|---|
+| 触发条件 | 同一出口地址连续完成约 4 次识别流程后开始返回 412 |
+| 持续时间 | 至少 **46 小时**（2026-11-18T18:33Z 首次 412 → 2026-11-20T17:07Z 仍为 412） |
+| 影响范围 | 仅 `/x/bcut/rubick-interface/task/result`；同一时刻 `resource/create`、`task` 均返回 `code 0` |
+| 请求方式 | GET / POST（form 或 JSON）都 412 |
+| UA | Chrome / Firefox / Android 三套 UA 都 412 |
+| Cookie | 用 `/x/frontend/finger/spi` 新取的 `buvid3/buvid4/b_nut` 后仍然 412 |
+| `Cache-Control: no-cache` | 无效（该头只对 2024 年 `resource/create` 的 412 有效，见上游 issue #12） |
+| `model_id` | 7 / 8 / 1 / 省略，全部 412 |
+| 其他路径 | `/task/query`、`/task/status`、`/resource/result` 等均 404 |
+| 响应形态 | 无 `Sec-Fetch-*`：412 + 人机验证 HTML（`x-sec-request-id`、`server: openresty`）；带 `Origin` + `Sec-Fetch-*`：`{"code":-412,"message":"request was banned"}` |
+
+结论：这是**按出口地址的端点级封禁**。但它并非无解——见下面的网关验证流程。
+
+**412 页面的真实形态（2026-11-20 反查）**：响应来自 `security.bilibili.com` 安全网关，
+页面加载 `sha256.min.js` + `js.cookie.min.js` + `412.js`。脚本中可读出的流程：
+
+```text
+GET  https://security.bilibili.com/412                -> {ip_addr, mid}
+GET  https://security.bilibili.com/th/captcha/get     -> 挑战数据
+POST https://security.bilibili.com/th/captcha/check   （或 /th/captcha/cc/check）-> 校验
+document.cookie = X-BILI-SEC-TOKEN=<token>; location.reload()
+```
+
+页面 DOM 是 `#img-captcha` + `.check-input` + “请输入验证码进行人机校验”，
+也就是**图片验证码，必须人工输入**；脚本里的 `pow1()`（sha256 找 nonce，上限 5×10^6 次）
+只是前置工作量校验，不能代替人工答题。`th/captcha/cc/check` 对不完整表单返回
+`{"code":-1,"message":"bad post form"}`，确认入口存在。
+
+关键点：验证成功后写入的 `X-BILI-SEC-TOKEN` 是 **member.bilibili.com 的 host cookie**
+（`document.cookie` 不带 Domain），所以人工在标签页里过验证后，插件的
+`GM_xmlhttpRequest` 会自动带上它，立刻可以继续请求已保留的任务。
+
+因此约定：**不尝试自动绕过验证码**；插件只做三件事——
+`打开验证页`（打开被拦的 `task/result?...&task_id=...` 原始 URL）、
+回到本页时**自动重试一次**、以及 `已通过，重试`（跳过冷却、只查结果，不重传音频）。
+
+补充观测（2026-11-20）：该封禁**会自行解除**——同一条物理出口从
+2026-11-18T18:33Z 持续 412，到 2026-11-20T17:24Z 恢复，约 **47 小时**；
+恢复后 `task/result` 对旧任务 id 正常返回结果，无效 id 返回
+`{"code":9,"message":"TaskidNotExists"}`（HTTP 200，不再是 412）。
+
+上游同样未解决：[SocialSisterYi/bcut-asr#12](https://github.com/SocialSisterYi/bcut-asr/issues/12)
+（2026-10-12 复现同一问题，调整轮询间隔 / 增加延迟均无效）。
+
+客户端缓解（v1.3.0 实现，状态存 `localStorage`，不含音频/URL/Cookie）：
+
+- **任务续查**：任务 id 持久化（2 h TTL）。412 后重试只查询结果，不重新下载/上传音频
+- **结果缓存**：识别成功的 cues 按 `bvid:cid` 缓存 7 天（最多 20 条），重复提取不再跑 ASR
+- **冷却保护**：412 后 30 分钟内不再自动请求，避免持续撞风控
+- **任务过期**：服务端返回 `code 9 / TaskidNotExists` 时明确提示「需重新上传」，不静默重传
+- **错误信息**：如实说明这是地址级封禁、换网络（如手机热点）通常立即恢复
+
+未验证：登录态（SESSDATA）是否提高阈值；封禁是否随出口 IP 变化（本机无第二出口）。
 
 ## Prior art 依据清单
 

@@ -24,6 +24,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - regression tests: prefix collision (both directions), cross-video prod path,
   digest-length variants, and non-prod boundary matching.
 
+## [1.3.0] - 2026-11-20
+
+### Added
+
+- **ASR session state** (`src/asr/state.js`), stored in `localStorage` (probe
+  guarded, in-memory fallback; never audio, URLs or cookies):
+  - **result cache** per `bvid:cid` (7 days, max 20 entries): a video that was
+    already recognised is returned without any network request
+  - **resumable tasks** (2 h TTL): the Bcut task id is remembered as soon as
+    it exists, so a later click only polls the result instead of downloading
+    the audio again and re-uploading it
+  - **412 cooldown** (30 min): after a risk-control block no further requests
+    are sent while the cooldown is active, instead of hammering the endpoint
+  - expired tasks (`code 9 / TaskidNotExists`) are reported explicitly and
+    dropped, never silently re-uploaded
+  - **manual gateway verification UX**: on HTTP 412 the panel offers
+    "打开验证页" (opens the exact blocked `task/result?…&task_id=…`, where the
+    security gateway shows its image captcha) and "已通过，重试". Returning to
+    the tab after verifying auto-retries once, forcing past the cooldown.
+
+### Changed
+
+- The HTTP 412 message now states the actual cause: Bilibili's risk control
+  blocks `/task/result` per egress address (measured: still blocked after
+  46 h; independent of UA, cookies, HTTP method, `model_id` and
+  `Cache-Control`, with no alternative path). It suggests switching networks
+  (e.g. phone hotspot) instead of the misleading "complete the captcha".
+- `docs/PROTOCOL.md` §8.4 records the full 412 measurement matrix.
+
 ## [1.2.0] - 2026-11-19
 
 ### Added

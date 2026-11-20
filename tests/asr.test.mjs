@@ -281,7 +281,7 @@ test('bcut transcribe turns a 412 challenge into an actionable message', async (
   };
   await assert.rejects(
     BS.asrBcut.transcribe(makeBytes(2048), { env: { net }, sleep: async () => {} }),
-    /人机验证（HTTP 412）/
+    /HTTP 412（B 站安全网关拦截/
   );
 });
 
@@ -437,5 +437,282 @@ test('generate fails clearly when nothing is recognised', async () => {
   await assert.rejects(
     BS.asr.generate(BS.makeVideoContext(CTX), { net }, { sleep: async () => {} }),
     /没有识别到可用的语音内容/
+  );
+});
+
+/* ------------------------------------------------------------------ *
+ * Session state: result cache, resumable tasks, 412 cooldown.
+ * ------------------------------------------------------------------ */
+
+const NOW = 1_800_000_000_000;
+
+function fakeStore() {
+  const map = new Map();
+  return {
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => { map.set(key, String(value)); },
+    removeItem: (key) => { map.delete(key); },
+    dump: () => JSON.parse(map.get('bili-subtitle.asr.v1') || '{}')
+  };
+}
+
+function forbiddenNet() {
+  const calls = [];
+  const fail = (name) => () => {
+    calls.push(name);
+    throw new Error(`unexpected ${name}`);
+  };
+  return {
+    calls,
+    getJson: fail('getJson'),
+    request: fail('request'),
+    postForm: fail('postForm'),
+    postJson: fail('postJson'),
+    putBinary: fail('putBinary')
+  };
+}
+
+const NAV_RESPONSE = {
+  code: -101,
+  data: {
+    wbi_img: {
+      img_url: 'https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png',
+      sub_url: 'https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png'
+    }
+  }
+};
+
+const PLAYURL_RESPONSE = {
+  code: 0,
+  data: { dash: { audio: [{ id: 30216, baseUrl: 'https://cdn/a.m4s', bandwidth: 66160 }] } }
+};
+
+function fullAsrNet({ resultStatus = null } = {}) {
+  const calls = [];
+  return {
+    calls,
+    async getJson(url) {
+      calls.push(url);
+      if (url.includes('/x/web-interface/nav')) return NAV_RESPONSE;
+      if (url.includes('playurl')) return PLAYURL_RESPONSE;
+      if (url.includes('task/result')) {
+        if (resultStatus) {
+          const e = new Error(`HTTP ${resultStatus}`);
+          e.status = resultStatus;
+          throw e;
+        }
+        return {
+          code: 0,
+          data: { state: 4, remark: 'SUCCESS', result: JSON.stringify({ utterances: UTTERANCES }) }
+        };
+      }
+      throw new Error(`unexpected getJson ${url}`);
+    },
+    async request(url) {
+      calls.push(url);
+      return { status: 200, response: makeBytes(1024).buffer, headers: {} };
+    },
+    async postForm(url) {
+      calls.push(url);
+      if (url.endsWith('/resource/create')) {
+        return {
+          code: 0,
+          data: {
+            resource_id: 'r',
+            in_boss_key: 'b',
+            upload_id: 'u',
+            per_size: 1024,
+            upload_urls: ['https://up.example/1']
+          }
+        };
+      }
+      return { code: 0, data: { download_url: 'https://dl.example/a.m4a' } };
+    },
+    async putBinary(url) {
+      calls.push(url);
+      return { status: 200, headers: { etag: '"e"' } };
+    },
+    async postJson(url) {
+      calls.push(url);
+      return { code: 0, data: { task_id: 'task-1' } };
+    }
+  };
+}
+
+test('generate caches the result and skips the network next time', async () => {
+  const BS = loadSrc();
+  const store = fakeStore();
+  const ctx = BS.makeVideoContext(CTX);
+
+  const first = await BS.asr.generate(ctx, { net: fullAsrNet() }, {
+    store, now: () => NOW, sleep: async () => {}
+  });
+  assert.equal(first.cached, false);
+  assert.equal(first.cues.length, 3);
+
+  const afterFirst = store.dump();
+  assert.equal(afterFirst.tasks[ctx.contextKey], undefined, 'task cleared after success');
+  assert.equal(afterFirst.cache[ctx.contextKey].cues.length, 3);
+
+  const net = forbiddenNet();
+  const second = await BS.asr.generate(ctx, { net }, {
+    store, now: () => NOW + 1000, sleep: async () => {}
+  });
+  assert.equal(net.calls.length, 0, 'cache hit makes no requests');
+  assert.equal(second.cached, true);
+  assert.equal(second.cues.length, 3);
+  assert.equal(BS.pipeline.isSelectableTrack(second.track, ctx), true);
+});
+
+test('generate resumes a remembered task without downloading audio', async () => {
+  const BS = loadSrc();
+  const store = fakeStore();
+  const ctx = BS.makeVideoContext(CTX);
+
+  const seeded = BS.asrState.loadState(store);
+  BS.asrState.putTask(seeded, ctx.contextKey, { taskId: 'task-9' }, NOW);
+  BS.asrState.saveState(seeded, store);
+
+  const net = fullAsrNet();
+  const r = await BS.asr.generate(ctx, { net }, {
+    store, now: () => NOW + 60_000, sleep: async () => {}
+  });
+
+  assert.equal(r.resumed, true);
+  assert.equal(r.audio.bytes, 0, 'no audio transferred on resume');
+  const resultCalls = net.calls.filter((u) => String(u).includes('task/result'));
+  assert.equal(resultCalls.length, 1);
+  assert.equal(
+    net.calls.some((u) => String(u).includes('playurl') || String(u).includes('/resource/create')),
+    false,
+    'audio / upload pipeline is skipped entirely'
+  );
+});
+
+test('generate fails fast during a 412 cooldown', async () => {
+  const BS = loadSrc();
+  const store = fakeStore();
+  const ctx = BS.makeVideoContext(CTX);
+
+  const seeded = BS.asrState.loadState(store);
+  BS.asrState.setBan(seeded, NOW, 30 * 60 * 1000);
+  BS.asrState.saveState(seeded, store);
+
+  const net = forbiddenNet();
+  await assert.rejects(
+    BS.asr.generate(ctx, { net }, { store, now: () => NOW + 1000, sleep: async () => {} }),
+    /冷却中.*分钟/
+  );
+  assert.equal(net.calls.length, 0, 'no requests while cooling down');
+});
+
+test('a 412 during polling keeps the task and starts the cooldown', async () => {
+  const BS = loadSrc();
+  const store = fakeStore();
+  const ctx = BS.makeVideoContext(CTX);
+  const net = fullAsrNet({ resultStatus: 412 });
+
+  let error = null;
+  try {
+    await BS.asr.generate(ctx, { net }, { store, now: () => NOW, sleep: async () => {} });
+  } catch (e) {
+    error = e;
+  }
+
+  assert.ok(error, 'generate rejected');
+  assert.equal(error.status, 412);
+  assert.match(error.message, /不再自动发请求/);
+  assert.match(error.message, /不会重新下载或上传/);
+  assert.equal(error.taskPending, true);
+  assert.match(error.verifyUrl, /member\.bilibili\.com\/x\/bcut\/rubick-interface\/task\/result\?model_id=7&task_id=task-1/);
+
+  const state = store.dump();
+  assert.equal(state.tasks[ctx.contextKey].taskId, 'task-1', 'task id survives the 412');
+  assert.ok(state.banUntil > NOW);
+  assert.equal(state.cache[ctx.contextKey], undefined);
+
+  // After the cooldown, the same click resumes and needs no upload.
+  const later = BS.asr.generate(ctx, { net: fullAsrNet() }, {
+    store, now: () => NOW + BS.asrState.BAN_TTL_MS + 1, sleep: async () => {}
+  });
+  const r = await later;
+  assert.equal(r.resumed, true);
+});
+
+test('a failed recognition drops the remembered task', async () => {
+  const BS = loadSrc();
+  const store = fakeStore();
+  const ctx = BS.makeVideoContext(CTX);
+  const net = fullAsrNet();
+  const original = net.getJson.bind(net);
+  net.getJson = async (url) => {
+    if (String(url).includes('task/result')) {
+      return { code: 0, data: { state: 3, remark: '任务失败', result: '' } };
+    }
+    return original(url);
+  };
+
+  await assert.rejects(
+    BS.asr.generate(ctx, { net }, { store, now: () => NOW, sleep: async () => {} }),
+    /语音识别失败/
+  );
+  assert.equal(store.dump().tasks[ctx.contextKey], undefined);
+});
+
+test('an expired task id is reported without re-uploading', async () => {
+  const BS = loadSrc();
+  const store = fakeStore();
+  const ctx = BS.makeVideoContext(CTX);
+
+  const seeded = BS.asrState.loadState(store);
+  BS.asrState.putTask(seeded, ctx.contextKey, { taskId: 'gone-task' }, NOW);
+  BS.asrState.saveState(seeded, store);
+
+  const net = fullAsrNet();
+  net.getJson = async (url) => {
+    if (String(url).includes('task/result')) return { code: 9, message: 'TaskidNotExists' };
+    throw new Error(`unexpected ${url}`);
+  };
+
+  await assert.rejects(
+    BS.asr.generate(ctx, { net }, { store, now: () => NOW + 1000, sleep: async () => {} }),
+    /识别任务已过期/
+  );
+  assert.equal(store.dump().tasks[ctx.contextKey], undefined);
+});
+
+test('cooldown offers the verify URL and can be forced once', async () => {
+  const BS = loadSrc();
+  const store = fakeStore();
+  const ctx = BS.makeVideoContext(CTX);
+
+  const seeded = BS.asrState.loadState(store);
+  BS.asrState.putTask(seeded, ctx.contextKey, { taskId: 'task-7' }, NOW);
+  BS.asrState.setBan(seeded, NOW, 30 * 60 * 1000);
+  BS.asrState.saveState(seeded, store);
+
+  // Without force: fail fast, but expose the captcha URL and the task.
+  let cooldown = null;
+  try {
+    await BS.asr.generate(ctx, { net: forbiddenNet() }, {
+      store, now: () => NOW + 1000, sleep: async () => {}
+    });
+  } catch (e) { cooldown = e; }
+  assert.ok(cooldown);
+  assert.match(cooldown.message, /冷却中/);
+  assert.equal(cooldown.taskPending, true);
+  assert.match(cooldown.verifyUrl, /task_id=task-7/);
+
+  // With force (user solved the captcha): exactly one attempt, task reused.
+  const net = fullAsrNet();
+  const r = await BS.asr.generate(ctx, { net }, {
+    store, now: () => NOW + 2000, sleep: async () => {}, force: true
+  });
+  assert.equal(r.resumed, true);
+  assert.equal(r.cues.length, 3);
+  assert.equal(
+    net.calls.some((u) => String(u).includes('/resource/create')),
+    false,
+    'forced retry still resumes instead of re-uploading'
   );
 });

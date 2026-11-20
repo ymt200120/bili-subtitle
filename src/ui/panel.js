@@ -83,6 +83,8 @@ const TEMPLATE = `
     <div id="bs-asr-actions">
       <button id="bs-asr-run">语音识别生成字幕</button>
       <button id="bs-asr-cancel" hidden>取消</button>
+      <button id="bs-asr-verify" hidden>打开验证页</button>
+      <button id="bs-asr-force" hidden>已通过，重试</button>
     </div>
   </div>
   <div id="bs-actions" hidden>
@@ -133,6 +135,8 @@ function createPanel(handlers) {
   const asrFill = $('bs-asr-fill');
   const asrRun = $('bs-asr-run');
   const asrCancel = $('bs-asr-cancel');
+  const asrVerify = $('bs-asr-verify');
+  const asrForce = $('bs-asr-force');
   const diagBox = $('bs-diag-box');
   const diagPre = $('bs-diag');
 
@@ -162,6 +166,12 @@ function createPanel(handlers) {
   });
   asrCancel.addEventListener('click', () => {
     if (handlers.onAsrCancel) handlers.onAsrCancel();
+  });
+  asrVerify.addEventListener('click', () => {
+    if (handlers.onAsrVerify) handlers.onAsrVerify();
+  });
+  asrForce.addEventListener('click', () => {
+    if (handlers.onAsrForce) handlers.onAsrForce();
   });
 
   tracksSel.addEventListener('change', () => {
@@ -261,6 +271,8 @@ function createPanel(handlers) {
       asrRun.disabled = false;
       asrRun.textContent = '语音识别生成字幕';
       asrCancel.hidden = true;
+      asrVerify.hidden = true;
+      asrForce.hidden = true;
     },
 
     hideAsr() {
@@ -272,6 +284,22 @@ function createPanel(handlers) {
       asrRun.textContent = busy ? '生成中…' : '语音识别生成字幕';
       asrCancel.hidden = !busy;
       asrRun.hidden = false;
+      if (busy) {
+        asrVerify.hidden = true;
+        asrForce.hidden = true;
+      }
+    },
+
+    /*
+     * 412 from the security gateway: the challenge is an image captcha that
+     * only a human can answer, in a real tab. Offer the exact blocked URL and
+     * a "retry anyway" path (the cooldown must not trap a user who just
+     * verified).
+     */
+    setAsrVerify({ url, canForce } = {}) {
+      asrBox.hidden = false;
+      asrVerify.hidden = !url;
+      asrForce.hidden = !canForce;
     },
 
     setAsrProgress({ text, percent } = {}) {

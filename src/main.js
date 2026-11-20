@@ -6,7 +6,17 @@ function createAppState() {
   // gen: monotonic token. Every user action that starts an async flow
   // (extract, track load) or invalidates one (SPA navigation) bumps it;
   // a flow whose gen is no longer current must not touch state or panel.
-  return { ctx: null, tracks: [], track: null, cues: [], gen: 0, asrRunning: false, asrCancel: false };
+  return {
+    ctx: null,
+    tracks: [],
+    track: null,
+    cues: [],
+    gen: 0,
+    asrRunning: false,
+    asrCancel: false,
+    asrVerifyUrl: '',
+    asrVerifyWatch: false
+  };
 }
 
 function makeEnv(state, panel, isStale) {
@@ -205,7 +215,7 @@ async function onTrackChange(state, panel, key) {
  * Explicit user action only — audio is downloaded and uploaded to
  * Bilibili's own Bcut ASR service, never to a third party.
  */
-async function onAsr(state, panel) {
+async function onAsr(state, panel, options = {}) {
   const ctx = state.ctx;
   if (!ctx) {
     panel.setStatus('请先点「提取字幕」确认当前视频');
@@ -220,6 +230,7 @@ async function onAsr(state, panel) {
   const gen = ++state.gen;
   state.asrRunning = true;
   state.asrCancel = false;
+  state.asrVerifyUrl = '';
   const stale = () => gen !== state.gen || state.asrCancel;
 
   const steps = [];
@@ -237,6 +248,7 @@ async function onAsr(state, panel) {
   try {
     const result = await BS.asr.generate(ctx, makeEnv(state, panel, stale), {
       isCancelled: stale,
+      force: Boolean(options.force),
       onProgress: (p) => {
         if (!stale()) panel.setAsrProgress(p);
       },
@@ -291,6 +303,13 @@ async function onAsr(state, panel) {
     panel.setStatus('语音识别失败');
     panel.setMessage(e && e.message ? e.message : String(e));
     addStep('✗', '语音识别', e && e.message ? e.message : String(e));
+    if (e && e.status === 412) {
+      state.asrVerifyUrl = e.verifyUrl || '';
+      panel.setAsrVerify({
+        url: state.asrVerifyUrl,
+        canForce: Boolean(e.verifyUrl || e.taskPending)
+      });
+    }
     BS.errorLog('语音识别失败', e);
   } finally {
     if (!stale()) {
@@ -305,6 +324,29 @@ function onAsrCancel(state, panel) {
   state.asrCancel = true;
   panel.setStatus('正在取消…');
   panel.setAsrProgress({ text: '正在取消…' });
+}
+
+/* Open the exact blocked URL: the gateway page renders the image captcha and
+ * sets X-BILI-SEC-TOKEN for member.bilibili.com on success. */
+function onAsrVerify(state, panel) {
+  if (!state.asrVerifyUrl) return;
+  const openedAt = Date.now();
+  window.open(state.asrVerifyUrl, '_blank', 'noopener');
+  // Coming back to this tab is the natural "I'm done" signal: retry exactly
+  // once (forcing past the cooldown) so no second click is needed.
+  if (state.asrVerifyWatch) return;
+  const onFocus = () => {
+    if (Date.now() - openedAt < 3000) return;
+    window.removeEventListener('focus', onFocus);
+    state.asrVerifyWatch = false;
+    if (!state.asrRunning && !state.extracting) onAsr(state, panel, { force: true });
+  };
+  state.asrVerifyWatch = true;
+  window.addEventListener('focus', onFocus);
+}
+
+function onAsrForce(state, panel) {
+  onAsr(state, panel, { force: true });
 }
 
 function onExport(state, panel, act) {
@@ -366,7 +408,9 @@ function boot() {
     onTrackChange: (key) => onTrackChange(state, panel, key),
     onExport: (act) => onExport(state, panel, act),
     onAsr: () => onAsr(state, panel),
-    onAsrCancel: () => onAsrCancel(state, panel)
+    onAsrCancel: () => onAsrCancel(state, panel),
+    onAsrVerify: () => onAsrVerify(state, panel),
+    onAsrForce: () => onAsrForce(state, panel)
   });
 
   BS.resourceCapture.install();
@@ -386,6 +430,8 @@ function boot() {
     state.extracting = false;
     state.asrRunning = false;
     state.asrCancel = false;
+    state.asrVerifyUrl = '';
+    state.asrVerifyWatch = false;
     panel.setBusy(false);
     state.ctx = null;
     state.tracks = [];

@@ -71,7 +71,9 @@ function callNet(fn, phase) {
     .catch((e) => {
       if (e && e.status === 412) {
         const err = bcutError(
-          '必剪接口触发人机验证（HTTP 412）：请稍后重试，或先用浏览器打开 member.bilibili.com 完成验证',
+          '必剪接口返回 HTTP 412（B 站安全网关拦截）：网关会要求人工完成图片验证码；' +
+            '点「打开验证页」在新标签页完成验证；完成并回到本页会自动重试一次，' +
+            '也可以点「已通过，重试」，或者换网络（如手机热点）',
           phase,
           412
         );
@@ -87,28 +89,8 @@ function callNet(fn, phase) {
     });
 }
 
-async function transcribe(bytes, opts = {}) {
-  const {
-    env,
-    onStage,
-    isCancelled,
-    fileName = 'audio.m4a',
-    sleep = defaultSleep,
-    pollMs = BCUT_POLL_MS,
-    maxPollMs = BCUT_MAX_POLL_MS
-  } = opts;
-
-  if (!bytes || !bytes.length) throw bcutError('音频为空，无法识别', 'bcut-input');
-  if (bytes.length < 1024) throw bcutError('音频过短，无法识别', 'bcut-input');
-
-  const net = (env && env.net) || BS.net;
-  const stage = (name, info) => {
-    if (onStage) onStage(name, info || {});
-  };
-  const ensureAlive = () => {
-    if (isCancelled && isCancelled()) throw bcutError('已取消语音识别', 'bcut-cancel');
-  };
-
+/* Upload the audio and create a recognition task; returns its task id. */
+async function startTask(bytes, { net, fileName, stage, ensureAlive }) {
   // 1. apply for upload slots
   stage('create');
   const created = unwrap(
@@ -187,8 +169,14 @@ async function transcribe(bytes, opts = {}) {
   );
   const taskId = String(task.task_id || '');
   if (!taskId) throw bcutError('必剪接口没有返回任务 id', 'asr-bcut-task');
+  return taskId;
+}
 
-  // 5. poll until done
+/*
+ * Poll an existing task. This is the only step that hits the risk-controlled
+ * /task/result endpoint, so it can be resumed later without re-uploading.
+ */
+async function waitForResult(taskId, { net, stage, ensureAlive, sleep, pollMs, maxPollMs }) {
   const startedAt = Date.now();
   for (;;) {
     ensureAlive();
@@ -202,23 +190,60 @@ async function transcribe(bytes, opts = {}) {
 
     const code = Number(state.state);
     if (code === 4) {
-      return {
-        utterances: parseUtterances(state.result),
-        remark: String(state.remark || ''),
-        taskId
-      };
+      return { utterances: parseUtterances(state.result), remark: String(state.remark || '') };
     }
     if (code === 3) {
       throw bcutError(`语音识别失败：${state.remark || '未知原因'}`, 'asr-bcut-result');
     }
-    if (Date.now() - startedAt > maxPollMs) {
+    const elapsed = Date.now() - startedAt;
+    if (elapsed > maxPollMs) {
       throw bcutError('语音识别超时，请稍后重试', 'asr-bcut-result');
     }
-    const elapsed = Date.now() - startedAt;
     stage('poll', { elapsedMs: elapsed, state: code });
     // Back off so a stuck task cannot hammer the endpoint: 1x, 2x, 3x, 4x.
     await sleep(pollMs * Math.min(4, 1 + Math.floor(elapsed / 20000)));
   }
+}
+
+async function transcribe(bytes, opts = {}) {
+  const {
+    env,
+    onStage,
+    isCancelled,
+    fileName = 'audio.m4a',
+    sleep = defaultSleep,
+    pollMs = BCUT_POLL_MS,
+    maxPollMs = BCUT_MAX_POLL_MS,
+    existingTaskId = '',
+    onTask = null
+  } = opts;
+
+  const net = (env && env.net) || BS.net;
+  const stage = (name, info) => {
+    if (onStage) onStage(name, info || {});
+  };
+  const ensureAlive = () => {
+    if (isCancelled && isCancelled()) throw bcutError('已取消语音识别', 'bcut-cancel');
+  };
+
+  // A remembered task id skips the whole upload: useful when a previous run
+  // already uploaded the audio and only the result query was blocked (412).
+  let taskId = String(existingTaskId || '');
+  const resumed = Boolean(taskId);
+
+  if (resumed) {
+    stage('resume', { taskId });
+  } else {
+    if (!bytes || !bytes.length) throw bcutError('音频为空，无法识别', 'bcut-input');
+    if (bytes.length < 1024) throw bcutError('音频过短，无法识别', 'bcut-input');
+    taskId = await startTask(bytes, { net, fileName, stage, ensureAlive });
+    if (onTask) onTask(taskId);
+  }
+
+  const result = await waitForResult(taskId, {
+    net, stage, ensureAlive, sleep, pollMs, maxPollMs
+  });
+  return { ...result, taskId, resumed };
 }
 
 function parseUtterances(raw) {
