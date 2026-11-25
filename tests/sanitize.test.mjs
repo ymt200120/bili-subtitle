@@ -20,6 +20,37 @@ test('wbi signing params are masked', () => {
   assert.ok(!out.includes('deadbeef0011'), out);
 });
 
+test('SigV4 and Google signed credential params are always masked', () => {
+  const out = BS.sanitizeUrl(
+    'https://storage.example/x?' +
+      'X-Amz-Credential=a&X-Amz-Signature=b&X-Amz-Security-Token=c&' +
+      'x-goog-credential=d&X-GOOG-SIGNATURE=e&x-goog-security-token=f&' +
+      'oid=40065631429'
+  );
+  for (const key of [
+    'X-Amz-Credential',
+    'X-Amz-Signature',
+    'X-Amz-Security-Token',
+    'x-goog-credential',
+    'X-GOOG-SIGNATURE',
+    'x-goog-security-token'
+  ]) {
+    assert.ok(out.includes(`${key}=***`), out);
+  }
+  assert.ok(out.includes('oid=40065631429'), out);
+  for (const value of ['a', 'b', 'c', 'd', 'e', 'f']) {
+    assert.ok(!out.includes(`=${value}`), out);
+  }
+});
+
+test('encoded sensitive key names are detected and malformed escapes do not throw', () => {
+  const out = BS.sanitizeUrl(
+    'https://storage.example/x?X-%41mz-%43redential=secret&bad%ZZ=public'
+  );
+  assert.ok(out.includes('X-%41mz-%43redential=***'), out);
+  assert.ok(out.includes('bad%ZZ=public'), out);
+});
+
 test('long hex path segments are masked', () => {
   const out = BS.sanitizeUrl('https://x/bfs/ai_subtitle/proxy/aabbccddeeff00112233445566778899/file');
   assert.ok(!out.includes('aabbccddeeff00112233445566778899'), out);

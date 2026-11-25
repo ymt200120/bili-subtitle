@@ -13,29 +13,34 @@
  *
  * Unknown fields are skipped, never assumed away. The decoder supports
  * wire types 0 (varint), 1 (64-bit), 2 (length-delimited) and 5 (32-bit);
- * wire types 3/4 (deprecated groups) abort parsing. Numbers are decoded
- * with Number (safe here: ids and lengths are far below 2^53).
+ * wire types 3/4 (deprecated groups) abort parsing. Varints are accumulated
+ * with BigInt so the full unsigned 64-bit wire range stays exact. Values that
+ * fit in Number's safe integer range are exposed as numbers; larger values
+ * are exposed as decimal strings.
  */
 
+const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+const MAX_FIELD_NUMBER = 0x1fffffffn; // protobuf field numbers: 1..2^29-1
+
+function publicVarint(value) {
+  return value <= MAX_SAFE_BIGINT ? Number(value) : value.toString();
+}
+
 function readVarint(bytes, offset) {
-  let value = 0;
-  let shift = 0;
+  let value = 0n;
   let pos = offset;
-  for (;;) {
+  for (let index = 0; index < 10; index++) {
     if (pos >= bytes.length) {
       throw new Error(`unterminated varint at ${offset}`);
     }
     const byte = bytes[pos++];
-    if (shift < 28) {
-      value += (byte & 0x7f) * Math.pow(2, shift);
-    } else {
-      value = value * Math.pow(2, 7) + (byte & 0x7f);
+    // An unsigned 64-bit varint has at most one payload bit in byte ten.
+    // Checking the complete byte also rejects a continuation bit there.
+    if (index === 9 && byte > 0x01) {
+      throw new Error(`invalid tenth byte at ${offset}`);
     }
+    value |= BigInt(byte & 0x7f) << BigInt(index * 7);
     if ((byte & 0x80) === 0) return { value, offset: pos };
-    shift += 7;
-    if (shift > 63) {
-      throw new Error(`varint too long at ${offset}`);
-    }
   }
 }
 
@@ -45,14 +50,18 @@ function decodeMessage(bytes) {
   while (offset < bytes.length) {
     const key = readVarint(bytes, offset);
     offset = key.offset;
-    const no = key.value / 8 | 0;
-    const wt = key.value % 8;
-    if (no <= 0) throw new Error(`invalid field number ${no}`);
+    const keyValue = key.value;
+    const noValue = keyValue >> 3n;
+    const wt = Number(keyValue & 7n);
+    if (noValue < 1n || noValue > MAX_FIELD_NUMBER) {
+      throw new Error(`invalid field number ${noValue}`);
+    }
+    const no = Number(noValue);
 
     if (wt === 0) {
       const value = readVarint(bytes, offset);
       offset = value.offset;
-      fields.push({ no, wt, value: value.value });
+      fields.push({ no, wt, value: publicVarint(value.value) });
     } else if (wt === 1) {
       const end = offset + 8;
       if (end > bytes.length) throw new Error('truncated 64-bit field');
@@ -61,8 +70,13 @@ function decodeMessage(bytes) {
     } else if (wt === 2) {
       const len = readVarint(bytes, offset);
       offset = len.offset;
-      const end = offset + len.value;
-      if (end > bytes.length) throw new Error('truncated length-delimited field');
+      const length = len.value;
+      // Compare while the length is still a BigInt. Only a bounded value is
+      // converted to Number for indexing the Uint8Array.
+      if (length > BigInt(bytes.length - offset)) {
+        throw new Error('truncated length-delimited field');
+      }
+      const end = offset + Number(length);
       fields.push({ no, wt, bytes: bytes.slice(offset, end) });
       offset = end;
     } else if (wt === 5) {
@@ -103,9 +117,11 @@ function toTracks(dataFields) {
     const lan = getString(inner, 3);
     const url = getString(inner, 5);
     if (!lan || !url) continue;
+    const id = getVarint(inner, 1);
+    const idStr = getString(inner, 2);
     tracks.push({
-      id: getVarint(inner, 1) || 0,
-      idStr: getString(inner, 2),
+      id,
+      idStr,
       lan,
       lanDoc: getString(inner, 4),
       url,

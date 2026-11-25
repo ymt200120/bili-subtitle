@@ -39,9 +39,36 @@ const DM_VIEW_API = 'https://api.bilibili.com/x/v2/dm/view';
  * foreign  -> prod path belongs to some other id pair            => reject
  * query    -> no ids in the URL (translation / CC hash file)     => query-bound
  */
-const PROD_PATH_RE = /\/prod\/([0-9A-Za-z]+)(?=[/?#]|$)/;
+const PROD_PATH_PREFIX = '/bfs/ai_subtitle/prod';
 const DIGEST_LENGTHS = [16, 32, 40, 64, 128];
 const HEX_RE = /^[0-9a-f]+$/i;
+
+/*
+ * Return the object-name segment and any following path, or null when this
+ * URL has no production path. Strip the query and fragment before looking
+ * for the marker: an auth/query parameter must not be able to turn a generic
+ * URL into production evidence. Empty and malformed object names
+ * intentionally return an empty/non-hex string rather than null, so callers
+ * can reject them before falling back to generic id matching.
+ */
+function getProductionPath(url) {
+  const raw = String(url || '');
+  const end = raw.search(/[?#]/);
+  const beforeQuery = end < 0 ? raw : raw.slice(0, end);
+  // Keep the marker in the URL path, not in the authority component. This
+  // also handles relative URLs used by tests and browser resource entries.
+  const path = beforeQuery.replace(/^(?:[a-z][a-z0-9+.-]*:)?\/\/[^/]*/i, '');
+
+  if (!path.startsWith(PROD_PATH_PREFIX)) return null;
+  const afterMarker = path.slice(PROD_PATH_PREFIX.length);
+  if (afterMarker && afterMarker[0] !== '/') return null;
+  const objectPath = afterMarker.slice(1);
+  const slash = objectPath.indexOf('/');
+  return {
+    body: slash < 0 ? objectPath : objectPath.slice(0, slash),
+    suffix: slash < 0 ? '' : objectPath.slice(slash)
+  };
+}
 
 function isDigest(s) {
   return DIGEST_LENGTHS.indexOf(s.length) >= 0 && HEX_RE.test(s);
@@ -74,8 +101,12 @@ function ownership(url, ctx) {
   const aid = String(ctx.aid);
   const cid = String(ctx.cid);
 
-  const prod = PROD_PATH_RE.exec(u);
-  if (prod) return classifyProdBody(prod[1], aid, cid);
+  const prod = getProductionPath(u);
+  if (prod !== null) {
+    const kind = classifyProdBody(prod.body, aid, cid);
+    if (prod.suffix) return kind === 'foreign' ? 'foreign' : 'query';
+    return kind;
+  }
 
   // Non-prod shapes (CC files) only get a standalone id check, with digit
   // boundaries so a short id cannot match inside a longer number.
@@ -153,4 +184,4 @@ async function discover(ctx, env) {
 }
 
 BS.resolvers = BS.resolvers || {};
-BS.resolvers.dmView = { name: 'dm-view', discover, ownership };
+BS.resolvers.dmView = { name: 'dm-view', discover, ownership, getProductionPath, isDigest };

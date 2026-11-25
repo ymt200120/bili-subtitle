@@ -67,6 +67,53 @@ test('multi-byte varint ids decode correctly', () => {
   assert.equal(tracks[0].id, 300);
 });
 
+test('varint ids remain exact across 28-bit and large safe values', () => {
+  for (const id of [268435456, 2065388298645511]) {
+    const track = makeTrackMessage({
+      id,
+      lan: 'ai-zh',
+      lanDoc: '中文（AI）',
+      url: 'https://x/y'
+    });
+    const { tracks } = decode(makeWebViewMessage([track]));
+    assert.equal(tracks[0].id, id);
+  }
+});
+
+test('64-bit varint ids use exact decimal strings without id_str', () => {
+  const id = 18446744073709551615n;
+  const track = concat([
+    fieldVarint(1, id),
+    fieldString(3, 'ai-zh'),
+    fieldString(5, 'https://x/y')
+  ]);
+  const { tracks } = decode(makeWebViewMessage([track]));
+  assert.equal(tracks[0].id, '18446744073709551615');
+  assert.equal(tracks[0].idStr, '');
+});
+
+test('varints reject an invalid tenth byte', () => {
+  const invalid = Uint8Array.from([
+    0x08,
+    ...new Array(9).fill(0x80),
+    0x02
+  ]);
+  assert.throws(() => BS.protobuf.decodeMessage(invalid), /tenth byte/);
+});
+
+test('field numbers and length bounds are validated without precision loss', () => {
+  const tooLargeField = Uint8Array.from([
+    0x80, 0x80, 0x80, 0x80, 0x10 // (2^29) << 3, wire type 0
+  ]);
+  assert.throws(() => BS.protobuf.decodeMessage(tooLargeField), /field number/);
+
+  const tooLong = Uint8Array.from([
+    0x0a,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01
+  ]);
+  assert.throws(() => BS.protobuf.decodeMessage(tooLong), /length-delimited/);
+});
+
 test('unknown fields and fixed wire types are skipped', () => {
   const track = concat([
     fieldFixed(4, 8), // unknown fixed64 on the track message

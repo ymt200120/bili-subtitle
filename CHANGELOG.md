@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-11-26
+
+### Added
+
+- **Draggable & lockable floating "字幕" pill** (`src/ui/pill-drag.js`, `src/ui/panel.js`):
+  - Unlocked by default; hovering over `#bs-pill` for 500 ms arms drag mode (`cursor: move` and subtle ring highlight), while quick clicks and `< 4 px` drags continue to toggle the panel normally.
+  - Dragging clamps to the viewport, persists edge-anchored offsets in `localStorage` (`bili-subtitle.ui.v1`; no cookies, URLs, or PII), survives window resizes, and cancels/reverts cleanly on `Escape`, `pointercancel`, `blur`, or fullscreen hide.
+  - `#bs-panel` dynamically anchors above or below the pill within available viewport space so it never covers the button or overflows off-screen.
+  - Panel header adds compact `锁定位置` / `已锁定` and `复位` controls.
+- **Query-based playlist route support** (`src/core/video-url.js`): `/list/watchlater?bvid=…`, `/list/ml<id>?bvid=…`, and `/list/<uid>?bvid=…` with `p` part tracking (ignoring playlist `oid`).
+
+### Fixed
+
+- **Aligned `dm-view` and `player-resource` production ownership checks**: `getProductionPath` anchors prefix matching, shares `isDigest` validation, and rejects/downgrades unexpected extra path segments.
+- **Strict multi-page context resolution** (`src/resolvers/video-context.js`): explicit `p > 1` no longer falls back to a stale one-page `__INITIAL_STATE__` snapshot.
+- **Fail-closed `identityMatches(ctx)` and error diagnostics** (`src/main.js`): non-video context-resolution failures now display full diagnostics rather than reporting a false page-change message or overwriting failure status.
+- **Protobuf wire hardening** (`src/core/protobuf.js`): exact 64-bit `BigInt` varint decoding and stricter field-number/wire checks.
+- **SRT boundary rounding** (`src/core/exporters.js`): `fmtClock` rounds total milliseconds before hour/minute/second decomposition to prevent invalid `,1000` timestamps.
+- **Log sanitization** (`src/core/log.js`): mask SigV4/Google signed credential params and percent-encoded sensitive query parameter names.
+
 ## [1.2.1] - 2026-11-19
 
 ### Fixed

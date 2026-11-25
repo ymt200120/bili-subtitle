@@ -36,7 +36,8 @@ export const SRC_FILES = [
   'src/resolvers/signed-wbi.js',
   'src/resolvers/player-resource.js',
   'src/resolvers/index.js',
-  'src/ui/display-mode.js'
+  'src/ui/display-mode.js',
+  'src/ui/pill-drag.js'
 ];
 
 export function loadSrc(extra = {}) {
@@ -44,6 +45,7 @@ export function loadSrc(extra = {}) {
     console: { log() {}, warn() {}, error() {} },
     TextDecoder,
     TextEncoder,
+    URLSearchParams,
     Date,
     ...extra
   };
@@ -65,17 +67,17 @@ export function loadSrc(extra = {}) {
  */
 export function writeVarint(value) {
   const bytes = [];
-  let rest = value;
-  while (rest >= 0x80) {
-    bytes.push((rest & 0x7f) | 0x80);
-    rest = Math.floor(rest / 128);
+  let rest = BigInt(value);
+  while (rest >= 0x80n) {
+    bytes.push(Number(rest & 0x7fn) | 0x80);
+    rest >>= 7n;
   }
-  bytes.push(rest);
+  bytes.push(Number(rest));
   return Uint8Array.from(bytes);
 }
 
 export function fieldVarint(no, value) {
-  const head = writeVarint(no * 8 + 0);
+  const head = writeVarint(BigInt(no) * 8n);
   return Uint8Array.from([...head, ...writeVarint(value)]);
 }
 

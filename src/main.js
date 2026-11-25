@@ -71,9 +71,13 @@ function currentVideoIdentity() {
   return parsed ? { bvid: parsed.bvid, page: parsed.page || 1 } : null;
 }
 
+function sameVideoIdentity(a, b) {
+  if (!a || !b) return a === b;
+  return a.bvid === b.bvid && a.page === b.page;
+}
+
 function identityMatches(ctx) {
-  const fresh = currentVideoIdentity();
-  return Boolean(fresh && ctx && fresh.bvid === ctx.bvid && fresh.page === ctx.page);
+  return Boolean(ctx) && sameVideoIdentity(currentVideoIdentity(), ctx);
 }
 
 function applyResult(state, panel, result) {
@@ -115,6 +119,7 @@ async function onExtract(state, panel) {
     return;
   }
   const gen = ++state.gen;
+  const startedIdentity = currentVideoIdentity();
   state.extracting = true;
   panel.setBusy(true);
   panel.clearResult();
@@ -128,15 +133,22 @@ async function onExtract(state, panel) {
       return;
     }
     // Commit needs BOTH conditions: current generation AND the page still
-    // being the video this result belongs to.
-    if (!identityMatches(result.ctx)) {
+    // being the same route that started this run. A context-resolution
+    // failure can legitimately have no ctx, so compare the URL identity
+    // captured before the request rather than treating null ctx as a stale
+    // navigation.
+    const freshIdentity = currentVideoIdentity();
+    if (
+      !sameVideoIdentity(startedIdentity, freshIdentity) ||
+      (result.ctx && !sameVideoIdentity(freshIdentity, result.ctx))
+    ) {
       BS.log(`[run:${result.runId}]`, '结果与当前页面视频不一致，丢弃');
       panel.setStatus('页面视频已变化，请重新提取');
       return;
     }
-    state.ctx = result.ctx || state.ctx;
+    state.ctx = result.ctx || null;
     applyResult(state, panel, result);
-    if (result.runId) panel.setStatus(`提取成功（run #${result.runId}）`);
+    if (result.ok && result.runId) panel.setStatus(`提取成功（run #${result.runId}）`);
   } catch (e) {
     if (stale()) {
       BS.log('提取错误已过期（视频已切换），丢弃');

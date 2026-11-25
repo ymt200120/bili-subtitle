@@ -101,6 +101,52 @@ test('ownership: non-prod URLs need standalone decimal runs', () => {
   );
 });
 
+test('ownership: production evidence must be in the path, not query or fragment', () => {
+  const body = `${AID}${CID}${HASH}`;
+  assert.equal(
+    BS.resolvers.dmView.ownership(
+      `https://subtitle.bilibili.com/bfs/subtitle/file.json?next=/bfs/ai_subtitle/prod/${body}`,
+      CONTEXT
+    ),
+    'query'
+  );
+  assert.equal(
+    BS.resolvers.dmView.ownership(
+      `https://subtitle.bilibili.com/bfs/subtitle/file.json#/bfs/ai_subtitle/prod/${body}`,
+      CONTEXT
+    ),
+    'query'
+  );
+  assert.equal(
+    BS.resolvers.dmView.ownership(
+      `https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/?aid=${AID}&cid=${CID}`,
+      CONTEXT
+    ),
+    'query'
+  );
+  assert.equal(
+    BS.resolvers.dmView.ownership(
+      `https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/${body}/extra`,
+      CONTEXT
+    ),
+    'query'
+  );
+  assert.equal(
+    BS.resolvers.dmView.ownership(
+      `https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/${AID}400999111114${HASH}/extra`,
+      CONTEXT
+    ),
+    'foreign'
+  );
+  assert.equal(
+    BS.resolvers.dmView.ownership(
+      `https://aisubtitle.hdslb.com/v1/bfs/ai_subtitle/prod/${body}`,
+      CONTEXT
+    ),
+    'query'
+  );
+});
+
 test('discover maps tracks, normalizes urls and rejects other parts', async () => {
   const net = {
     async getJson(url) {

@@ -1,5 +1,5 @@
 /*
- * Minimal UI: a "字幕" pill at the bottom-right and a small popover with
+ * Minimal UI: a draggable, lockable "字幕" pill and a small popover with
  * track list, export actions, preview and collapsed diagnostics.
  *
  * Dynamic content is set via textContent only (no HTML interpolation of
@@ -12,6 +12,22 @@ const STYLE = `
   border: 0; border-radius: 999px; background: #fb7299; color: #fff;
   padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
   box-shadow: 0 4px 14px rgba(0,0,0,.25); font-family: inherit;
+  user-select: none; -webkit-user-select: none;
+  transition: box-shadow .15s ease, opacity .15s ease;
+}
+#bs-pill.bs-drag-ready {
+  cursor: move;
+  box-shadow: 0 4px 16px rgba(251,114,153,.45), 0 0 0 2px rgba(255,255,255,.9), 0 0 0 4px rgba(251,114,153,.6);
+}
+#bs-pill.bs-dragging {
+  cursor: move;
+  opacity: .92;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35);
+}
+html.bs-pill-dragging, html.bs-pill-dragging * {
+  cursor: move !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
 }
 #bs-panel {
   position: fixed; right: 20px; bottom: 130px; z-index: 2147483645;
@@ -21,12 +37,23 @@ const STYLE = `
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 #bs-head {
-  display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  display: flex; align-items: center; gap: 6px; padding: 10px 12px;
   border-bottom: 1px solid #eee;
 }
 #bs-title { flex: 1; min-width: 0; font-weight: 700;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#bs-close { border: 0; background: transparent; font-size: 18px;
+#bs-panel #bs-lock, #bs-panel #bs-reset-pos {
+  flex-shrink: 0; border: 1px solid #e5e7eb; border-radius: 999px;
+  background: #f7f8fa; color: #61666d; padding: 2px 8px;
+  font-size: 11px; line-height: 1.5; cursor: pointer;
+}
+#bs-panel #bs-lock:hover, #bs-panel #bs-reset-pos:hover {
+  border-color: #fb7299; color: #fb7299; background: #fff7f9;
+}
+#bs-panel #bs-lock.bs-locked {
+  border-color: #fb7299; background: #fff0f4; color: #d8436e;
+}
+#bs-close { flex-shrink: 0; border: 0; background: transparent; font-size: 18px;
   cursor: pointer; color: #888; line-height: 1; }
 #bs-status { padding: 6px 12px; color: #666; font-size: 12px; }
 #bs-msg { margin: 0 12px 8px; padding: 8px 10px; border-radius: 8px;
@@ -67,6 +94,8 @@ const TEMPLATE = `
 <div id="bs-panel" hidden>
   <div id="bs-head">
     <span id="bs-title">bili-subtitle</span>
+    <button id="bs-reset-pos" type="button" title="恢复「字幕」按钮默认位置" hidden>复位</button>
+    <button id="bs-lock" type="button" aria-pressed="false" title="锁定「字幕」按钮当前位置，禁止拖动">锁定位置</button>
     <button id="bs-close" title="关闭">×</button>
   </div>
   <div id="bs-status">就绪</div>
@@ -112,6 +141,7 @@ function createPanel(handlers) {
 
   const pill = document.createElement('button');
   pill.id = 'bs-pill';
+  pill.type = 'button';
   pill.textContent = '字幕';
   root.appendChild(pill);
 
@@ -121,6 +151,8 @@ function createPanel(handlers) {
   const $ = (id) => root.querySelector(`#${id}`);
   const panel = $('bs-panel');
   const title = $('bs-title');
+  const lockBtn = $('bs-lock');
+  const resetPosBtn = $('bs-reset-pos');
   const status = $('bs-status');
   const msg = $('bs-msg');
   const extractBtn = $('bs-extract');
@@ -141,9 +173,63 @@ function createPanel(handlers) {
   const diagPre = $('bs-diag');
 
   let trackKeyOf = () => '';
+  let pillDrag = null;
+
+  function positionPanel() {
+    if (!pillDrag || panel.hidden) return;
+    if (!pillDrag.hasCustomPosition() && !pillDrag.isDragging()) {
+      panel.style.left = '';
+      panel.style.right = '';
+      panel.style.top = '';
+      panel.style.bottom = '';
+      panel.style.maxHeight = '';
+      return;
+    }
+    const viewport = pillDrag.getViewport();
+    const fallbackWidth = Math.min(400, Math.max(0, viewport.width - 40));
+    const panelWidth = panel.offsetWidth || fallbackWidth;
+    const placement = BS.ui.pillDrag.computePanelPlacement(
+      pillDrag.getPillRect(),
+      viewport,
+      { panelWidth }
+    );
+    panel.style.left = `${placement.left}px`;
+    panel.style.right = 'auto';
+    if (placement.side === 'above') {
+      panel.style.top = 'auto';
+      panel.style.bottom = `${placement.bottom}px`;
+    } else {
+      panel.style.bottom = 'auto';
+      panel.style.top = `${placement.top}px`;
+    }
+    panel.style.maxHeight = `${placement.maxHeight}px`;
+  }
+
+  function syncDragUi({ locked, hasCustomPos, dragReady }) {
+    lockBtn.textContent = locked ? '已锁定' : '锁定位置';
+    lockBtn.classList.toggle('bs-locked', !!locked);
+    lockBtn.setAttribute('aria-pressed', locked ? 'true' : 'false');
+    lockBtn.title = locked
+      ? '位置已锁定，点击解锁拖动'
+      : '锁定「字幕」按钮当前位置，禁止拖动';
+    resetPosBtn.hidden = Boolean(locked || !hasCustomPos);
+    if (locked) {
+      pill.title = '点击打开/关闭字幕面板（位置已锁定）';
+    } else if (dragReady) {
+      pill.title = '按住拖动「字幕」按钮位置，轻点打开/关闭面板';
+    } else {
+      pill.title = '点击打开/关闭字幕面板（悬停片刻可拖动）';
+    }
+  }
+
+  pillDrag = BS.ui.pillDrag.attachPillDrag(pill, {
+    onMove: positionPanel,
+    onStateChange: syncDragUi
+  });
 
   function open() {
     panel.hidden = false;
+    positionPanel();
   }
 
   function close() {
@@ -151,12 +237,21 @@ function createPanel(handlers) {
   }
 
   pill.addEventListener('click', () => {
+    if (pillDrag.shouldSuppressClick()) return;
     if (panel.hidden) {
       open();
       if (handlers.onOpen) handlers.onOpen();
     } else {
       close();
     }
+  });
+
+  lockBtn.addEventListener('click', () => {
+    pillDrag.toggleLocked();
+  });
+
+  resetPosBtn.addEventListener('click', () => {
+    pillDrag.resetPosition();
   });
 
   $('bs-close').addEventListener('click', close);
@@ -351,8 +446,14 @@ function createPanel(handlers) {
      * pill but never reopens the panel on its own.
      */
     setPlayerFullscreenHidden(hidden) {
-      root.classList.toggle('bs-player-fullscreen-hidden', !!hidden);
-      if (hidden) close();
+      if (hidden) {
+        pillDrag.cancelInteraction();
+        root.classList.add('bs-player-fullscreen-hidden');
+        close();
+      } else {
+        root.classList.remove('bs-player-fullscreen-hidden');
+        pillDrag.syncPosition();
+      }
     }
   };
 

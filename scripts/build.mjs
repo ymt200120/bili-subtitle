@@ -39,6 +39,7 @@ const FILES = [
   'src/resolvers/player-resource.js',
   'src/resolvers/index.js',
   'src/ui/display-mode.js',
+  'src/ui/pill-drag.js',
   'src/ui/panel.js',
   'src/main.js'
 ];

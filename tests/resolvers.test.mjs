@@ -564,6 +564,9 @@ test('ownsUrl predicate: cid always proves ownership, aid only on single-page vi
   const owns = BS.resolvers.playerResource.ownsUrl;
   const ctx = { cid: 40065631429, aid: 116939846387549 };
   const base = 'https://aisubtitle.hdslb.com/bfs';
+  const hash = '4b6f803738d47df1bdaec174195d9492';
+  const prod = (body, suffix = '') =>
+    `${base}/ai_subtitle/prod/${body}${suffix}`;
 
   assert.equal(owns(`${base}/subtitle/noid?auth_key=A`, { ...ctx, pageCount: 1 }), false);
   assert.equal(
@@ -578,7 +581,69 @@ test('ownsUrl predicate: cid always proves ownership, aid only on single-page vi
     owns(`${base}/ai_subtitle/proxy/116939846387549-40065631429/h?auth_key=A`, { ...ctx, pageCount: 2 }),
     true
   );
+  assert.equal(
+    owns(prod(`${ctx.aid}${ctx.cid}${hash}`), { ...ctx, pageCount: 1 }),
+    true,
+    'exact production aid+cid+32-hex object is owned on a single-page video'
+  );
+  assert.equal(
+    owns(prod(`${ctx.aid}${ctx.cid}${hash}`), { ...ctx, pageCount: 2 }),
+    true,
+    'exact production aid+cid+32-hex object is owned on a multi-page video'
+  );
+  assert.equal(
+    owns(prod(`${ctx.aid}${ctx.cid}${'ab'.repeat(20)}`), { ...ctx, pageCount: 2 }),
+    true,
+    'exact production aid+cid+40-hex object is owned on a multi-page video'
+  );
+  assert.equal(
+    owns(`https://aisubtitle.hdslb.com/v1/bfs/ai_subtitle/prod/${ctx.aid}${ctx.cid}${hash}`, { ...ctx, pageCount: 2 }),
+    false,
+    'prefixed path is not production evidence'
+  );
+  assert.equal(
+    owns(prod(`${ctx.aid}40099911111${hash}`, `?cid=${ctx.cid}`), { ...ctx, pageCount: 2 }),
+    false,
+    'foreign production object wins over a matching query number'
+  );
+  assert.equal(
+    owns(prod(hash, `?cid=${ctx.cid}`), { ...ctx, pageCount: 1 }),
+    false,
+    'id-less production object must not fall back to generic cid matching'
+  );
+  assert.equal(
+    owns(prod(`${ctx.aid}${ctx.cid}${hash}`, '/extra?cid=' + ctx.cid), { ...ctx, pageCount: 1 }),
+    false,
+    'extra path segments are not the observed terminal production object'
+  );
+  assert.equal(
+    owns(`${base}/subtitle/file.json?next=/ai_subtitle/prod/${ctx.aid}${ctx.cid}${hash}`, { ...ctx, pageCount: 2 }),
+    false,
+    'query-only production-looking text is not production evidence'
+  );
   assert.equal(owns(`${base}/subtitle/x?auth_key=A`, null), false);
+});
+
+test('pipeline: current production resource capture is accepted on a multi-page video', async () => {
+  BS.resourceCapture.reset();
+  BS.wbi.invalidateKeys();
+  const capturedUrl =
+    'https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/116939846387549400656314294b6f803738d47df1bdaec174195d9492?auth_key=PROD';
+  const m = net(baseJsonHandlers({ [capturedUrl]: () => CUES(4) }), {
+    [WEB_VIEW_URL_PART]: emptyWebViewBinary
+  });
+
+  const r = await BS.pipeline.extract(
+    makeEnv(m, {
+      initialState: STATE_MULTI,
+      getEntries: () => [{ url: capturedUrl, time: 1, epoch: currentEpoch() }]
+    })
+  );
+
+  assert.equal(r.ok, true);
+  assert.equal(r.track.source, 'player-resource');
+  assert.equal(r.track.url, capturedUrl);
+  assert.equal(r.cues.length, 4);
 });
 
 test('isSelectableTrack: contextKey/trust gates (dropdown + track-change safety)', () => {

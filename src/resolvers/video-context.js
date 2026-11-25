@@ -15,7 +15,11 @@ function pickPage(pages, wanted) {
   // A missing page number means the embedded data does not describe this
   // URL's part; falling back to pages[0] would silently extract the wrong
   // cid (wrong subtitles). Only the default P1 may use the first page.
-  if (!wanted || wanted === 1) return pages[0];
+  if (!wanted || wanted === 1) {
+    const first = pages[0];
+    const firstPage = first && first.page;
+    if (firstPage == null || Number(firstPage) === 1) return first;
+  }
   return null;
 }
 
@@ -23,7 +27,11 @@ function contextFromVideoData(videoData, page) {
   if (!videoData || !videoData.bvid) return null;
   const pages = Array.isArray(videoData.pages) ? videoData.pages : [];
   const selected = pickPage(pages, page);
-  if (!selected && pages.length > 1) return null;
+  // An explicit P>1 must never be satisfied by a stale one-page snapshot.
+  // Returning its top-level cid here would silently extract the wrong part;
+  // the caller will fall back to the view API instead.
+  if (!selected && (pages.length || Number(page) > 1)) return null;
+  if (selected && Number(page) > 1 && !Number(selected.cid)) return null;
   const cid = Number((selected && selected.cid) || videoData.cid) || 0;
   if (!cid) return null;
   const base = String(videoData.title || '');

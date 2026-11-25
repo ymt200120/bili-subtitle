@@ -14,6 +14,15 @@ test('SRT clock rolls over hours', () => {
   assert.equal(fmtClock(3661.5, true), '01:01:01,500');
 });
 
+test('SRT rounds total milliseconds before minute/hour decomposition', () => {
+  assert.equal(fmtClock(59.9996, true), '00:01:00,000');
+  assert.equal(fmtClock(3599.9996, true), '01:00:00,000');
+  assert.equal(fmtClock(59.9996), '00:59');
+
+  const srt = toSrt([{ from: 59.9996, to: 3599.9996, content: 'edge' }]);
+  assert.equal(srt, '1\n00:01:00,000 --> 01:00:00,000\nedge\n');
+});
+
 test('plain clock omits hours when zero', () => {
   assert.equal(fmtClock(59.2), '00:59');
   assert.equal(fmtClock(61), '01:01');

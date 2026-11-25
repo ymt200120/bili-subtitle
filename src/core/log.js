@@ -11,15 +11,28 @@ const SENSITIVE_PARAMS =
 const SENSITIVE_PARAM_HINT =
   /^(auth|token|sign|w_|session|osa|credential|secret|access)/i;
 
-function maskValue(value) {
-  if (!value) return '***';
-  if (value.length <= 4) return '***';
-  return value.slice(0, 2) + '***' + value.slice(-2);
+const CLOUD_SIGNATURE_PARAM =
+  /^x-(?:amz|goog)-(?:credential|signature|security-token)$/i;
+
+function decodedQueryKey(key) {
+  try {
+    return decodeURIComponent(key);
+  } catch (_) {
+    // A malformed escape must not make logging itself throw. Keep the raw
+    // spelling for the remaining (ordinary) redaction checks.
+    return key;
+  }
 }
 
 function sanitizeQueryValue(key, value) {
-  if (SENSITIVE_PARAMS.test(key)) return '***';
-  if (SENSITIVE_PARAM_HINT.test(key) && value.length >= 12) return '***';
+  const detectionKey = decodedQueryKey(key);
+  if (SENSITIVE_PARAMS.test(detectionKey) || CLOUD_SIGNATURE_PARAM.test(detectionKey)) {
+    return '***';
+  }
+  if (
+    SENSITIVE_PARAM_HINT.test(detectionKey) &&
+    value.length >= 12
+  ) return '***';
   if (/^[0-9a-f]{16,}$/i.test(value)) return '***';
   return value;
 }

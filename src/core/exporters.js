@@ -8,14 +8,22 @@ function pad(n, width = 2) {
 
 function fmtClock(sec, withMs = false) {
   sec = Math.max(0, Number(sec) || 0);
+
+  if (withMs) {
+    // Round the complete timestamp once, then decompose it. Rounding the
+    // fractional part separately can produce an invalid `,1000` millisecond
+    // component at minute/hour boundaries.
+    const totalMs = Math.round(sec * 1000);
+    const h = Math.floor(totalMs / 3600000);
+    const m = Math.floor((totalMs % 3600000) / 60000);
+    const s = Math.floor((totalMs % 60000) / 1000);
+    const ms = totalMs % 1000;
+    return `${pad(h)}:${pad(m)}:${pad(s)},${pad(ms, 3)}`;
+  }
+
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
   const s = Math.floor(sec % 60);
-  const ms = Math.round((sec - Math.floor(sec)) * 1000);
-
-  if (withMs) {
-    return `${pad(h)}:${pad(m)}:${pad(s)},${pad(ms, 3)}`;
-  }
   return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
